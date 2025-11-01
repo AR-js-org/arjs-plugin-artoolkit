@@ -6,7 +6,7 @@
  * - subscribes to engine:update to send frames (by id) to the worker
  * - emits ar:markerFound / ar:markerUpdated / ar:markerLost on the engine eventBus
  *
- * Note: the worker stub is intentionally simple and returns a fake detection.
+ * Works both in browsers (global Worker) and in Node (worker_threads.Worker).
  */
 export class ArtoolkitPlugin {
     constructor(options = {}) {
@@ -45,7 +45,7 @@ export class ArtoolkitPlugin {
 
         // start worker if configured
         if (this.workerEnabled) {
-            this._startWorker();
+            await this._startWorker();
         }
 
         // start a simple interval to sweep lost markers by frame count (optional)
@@ -84,6 +84,7 @@ export class ArtoolkitPlugin {
         // Send lightweight message to worker (worker may accept ImageBitmap later)
         if (this._worker) {
             try {
+                // In Node worker_threads, worker.postMessage exists too
                 this._worker.postMessage({ type: 'processFrame', payload: { frameId: frame.id } });
             } catch (err) {
                 // worker may be terminated; ignore
@@ -94,20 +95,63 @@ export class ArtoolkitPlugin {
         }
     }
 
-    // Worker lifecycle
-    _startWorker() {
+    // Worker lifecycle (cross-platform)
+    async _startWorker() {
         if (this._worker) return;
-        // spawn worker relative to this module
-        this._worker = new Worker(new URL('./worker/worker.js', import.meta.url));
-        this._worker.addEventListener('message', this._onWorkerMessage);
-        this._worker.postMessage({ type: 'init' });
+
+        // Browser environment: global Worker exists
+        if (typeof Worker !== 'undefined') {
+            // Works in browsers and bundlers that support new URL(...) for workers
+            this._worker = new Worker(new URL('./worker/worker.js', import.meta.url));
+        } else {
+            // Node environment: use worker_threads.Worker
+            // dynamically import to avoid bundling node-only module into browser builds
+            const { Worker: NodeWorker } = await import('node:worker_threads');
+            // Convert the worker module URL into a filesystem path suitable for worker_threads
+            const workerUrl = new URL('./worker/worker.js', import.meta.url);
+
+            // Robust conversion to platform path:
+            // fileURLToPath handles Windows correctly and avoids duplicate drive letters.
+            const { fileURLToPath } = await import('node:url');
+            const workerPath = fileURLToPath(workerUrl);
+
+            // Create worker as ES module
+            this._worker = new NodeWorker(workerPath, { type: 'module' });
+        }
+
+        // Attach message handler (same for both environments)
+        if (this._worker.addEventListener) {
+            this._worker.addEventListener('message', this._onWorkerMessage);
+        } else if (this._worker.on) {
+            this._worker.on('message', this._onWorkerMessage);
+        }
+
+        // If worker supports postMessage init, send init
+        try {
+            this._worker.postMessage?.({ type: 'init' });
+        } catch (e) {
+            // ignore
+        }
     }
 
     _stopWorker() {
         if (!this._worker) return;
-        this._worker.removeEventListener('message', this._onWorkerMessage);
+
+        // Remove handler
+        if (this._worker.removeEventListener) {
+            this._worker.removeEventListener('message', this._onWorkerMessage);
+        } else if (this._worker.off) {
+            this._worker.off('message', this._onWorkerMessage);
+        }
+
         try {
-            this._worker.terminate();
+            // terminate/close depending on environment
+            if (typeof Worker !== 'undefined') {
+                this._worker.terminate();
+            } else {
+                // Node worker_threads
+                this._worker.terminate?.();
+            }
         } catch (e) {
             // ignore
         }
@@ -115,7 +159,9 @@ export class ArtoolkitPlugin {
     }
 
     _onWorkerMessage(ev) {
-        const { type, payload } = ev.data || {};
+        // worker_threads messages arrive as the raw payload; browser workers wrap in event.data
+        const data = ev && ev.data !== undefined ? ev.data : ev;
+        const { type, payload } = data || {};
         if (type === 'ready') {
             // Worker initialized
             this.core?.eventBus?.emit('ar:workerReady', {});
@@ -153,10 +199,7 @@ export class ArtoolkitPlugin {
         const now = Date.now();
         for (const [id, state] of this._markers.entries()) {
             const deltaMs = now - (state.lastSeen || 0);
-            // converted threshold: if not seen within lostThreshold * frameInterval (~100ms here) mark lost
-            // simple heuristic: if lastSeen is older than lostThreshold * 200ms mark lost
             if (deltaMs > (this.lostThreshold * 200)) {
-                // emit lost
                 this._markers.delete(id);
                 this.core.eventBus.emit('ar:markerLost', { id, timestamp: now });
             }
