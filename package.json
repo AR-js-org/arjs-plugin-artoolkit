@@ -23,5 +23,8 @@
     "eslint": "^9.39.0",
     "husky": "^9.1.7",
     "vitest": "^4.0.6"
+  },
+  "dependencies": {
+    "@ar-js-org/artoolkit5-js": "^0.3.2"
   }
 }
