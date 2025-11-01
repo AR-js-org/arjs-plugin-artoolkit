@@ -1,47 +1,35 @@
-/**
- * Minimal ARToolKit plugin skeleton.
- * Conforms to the Engine Plugin contract: init(core), enable(), disable(), dispose()
- * Emits events via core.eventBus: 'ar:markerFound', 'ar:markerUpdated', 'ar:markerLost'
- */
-export class ArtoolkitPlugin {
-    constructor(options = {}) {
-        this.options = options;
-        this.core = null;
-        this.enabled = false;
-        this._onUpdate = null;
-    }
+// Assuming existing imports and setup in src/plugin.js
 
-    async init(core) {
-        this.core = core;
-        // load resources if needed
-        return this;
-    }
+let detectionWorker;
 
-    async enable() {
-        if (!this.core) throw new Error('Plugin not initialized');
-        this.enabled = true;
-        this._onUpdate = (payload) => this._onFrameUpdate(payload);
-        this.core.eventBus.on('engine:update', this._onUpdate);
-        return this;
-    }
+function enableWorker() {
+  detectionWorker = new Worker(new URL('./worker/worker.js', import.meta.url));
 
-    async disable() {
-        this.enabled = false;
-        if (this._onUpdate) this.core.eventBus.off('engine:update', this._onUpdate);
-        return this;
-    }
+  detectionWorker.postMessage({ type: 'init' });
 
-    dispose() {
-        return this.disable();
+  // Capture engine:update event to post processFrame messages
+  core.eventBus.on('engine:update', (frame) => {
+    if (frame) {
+      detectionWorker.postMessage({ type: 'processFrame', payload: { frameId: frame.id } });
     }
+  });
 
-    _onFrameUpdate({ deltaTime, context }) {
-        // stub: read frame from context/resources and run detection
-        // when detection occurs, emit:
-        // this.core.eventBus.emit('ar:markerFound', { id, poseMatrix, confidence, corners });
+  detectionWorker.addEventListener('message', (ev) => {
+    const { type, payload } = ev.data || {};
+    if (type === 'ready') {
+      console.log('Worker is ready');
+    } else if (type === 'detectionResult') {
+      payload.detections.forEach(detection => {
+        core.eventBus.emit('ar:markerUpdated', {
+          id: detection.id,
+          poseMatrix: new Float32Array(detection.poseMatrix),
+          confidence: detection.confidence,
+          corners: detection.corners
+        });
+      });
     }
-
-    getMarkerState(markerId) {
-        return null;
-    }
+  });
 }
+
+// Call enableWorker when you want to start the worker
+// Example: enableWorker();
