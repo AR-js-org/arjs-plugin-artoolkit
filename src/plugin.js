@@ -189,6 +189,14 @@ export class ArtoolkitPlugin {
             this.core?.eventBus?.emit('ar:workerReady', {});
         } else if (type === 'detectionResult') {
             if (!payload || !Array.isArray(payload.detections)) return;
+            
+            // Log detection results to main console
+            if (payload.detections.length > 0) {
+                console.log('[Plugin] Detection results:', payload.detections.map(d => 
+                    `ID=${d.id}, confidence=${d.confidence?.toFixed(2)}`
+                ).join(', '));
+            }
+            
             for (const d of payload.detections) {
                 const id = d.id;
                 const now = Date.now();
@@ -199,6 +207,7 @@ export class ArtoolkitPlugin {
                 const prev = this._markers.get(id);
                 if (!prev || !prev.visible) {
                     this._markers.set(id, { lastSeen: now, visible: true, lostCount: 0 });
+                    console.log(`[Plugin] Marker found: ID=${id}, confidence=${confidence.toFixed(2)}`);
                     this.core.eventBus.emit('ar:markerFound', { id, poseMatrix, confidence, corners, timestamp: now });
                 } else {
                     prev.lastSeen = now;

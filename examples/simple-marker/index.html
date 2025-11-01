@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARToolKit Plugin - Simple Marker Example</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #333;
+        }
+        
+        .info {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        #video {
+            width: 100%;
+            max-width: 640px;
+            display: block;
+        }
+        
+        .controls {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        
+        .console-line {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        
+        .console-line.info {
+            color: #4ec9b0;
+        }
+        
+        .console-line.error {
+            color: #f48771;
+        }
+        
+        .console-line.warn {
+            color: #dcdcaa;
+        }
+        
+        .status {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .status-item {
+            margin: 5px 0;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .badge.success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .badge.warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .badge.danger {
+            background: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ARToolKit Plugin - Simple Marker Detection Example</h1>
+        
+        <div class="info">
+            <p><strong>Instructions:</strong></p>
+            <ol>
+                <li>Click "Start Camera" to begin webcam capture</li>
+                <li>Show an ARToolKit marker to the camera</li>
+                <li>Detection results will appear in the console below</li>
+                <li>Check your browser's developer console for detailed logs</li>
+            </ol>
+            <p><strong>Note:</strong> This example requires HTTPS or localhost to access the webcam.</p>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn">Start Camera</button>
+            <button id="stopBtn" disabled>Stop Camera</button>
+        </div>
+        
+        <div class="status">
+            <h3>Status</h3>
+            <div class="status-item">
+                Camera: <span id="cameraStatus" class="badge warning">Not started</span>
+            </div>
+            <div class="status-item">
+                Plugin: <span id="pluginStatus" class="badge warning">Not initialized</span>
+            </div>
+            <div class="status-item">
+                Worker: <span id="workerStatus" class="badge warning">Not ready</span>
+            </div>
+            <div class="status-item">
+                Frames processed: <span id="frameCount">0</span>
+            </div>
+            <div class="status-item">
+                Markers detected: <span id="markerCount">0</span>
+            </div>
+        </div>
+        
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+        </div>
+        
+        <div>
+            <h3>Console Output</h3>
+            <div id="console" class="console">
+                <div class="console-line info">Ready. Click "Start Camera" to begin.</div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="./script.js"></script>
+</body>
+</html>
