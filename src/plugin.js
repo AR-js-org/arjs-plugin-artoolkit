@@ -24,9 +24,17 @@ export class ArtoolkitPlugin {
         // Marker state tracking: Map<id, { lastSeen: number, visible: boolean }>
         this._markers = new Map();
 
-        // configuration
+        // configuration (defaults)
+        // lostThreshold: number of frames to consider a marker lost
+        this.lostThreshold = options.lostThreshold ?? 5; // frames
+        // frameDurationMs: how many milliseconds to consider a single 'frame' (used to convert lostThreshold -> ms)
+        // Default 200ms per frame is a conservative default (5 fps). Consumers can adjust to match their capture rate.
+        this.frameDurationMs = options.frameDurationMs ?? 200;
+        // sweepIntervalMs: how often to run the lost-marker sweep (ms)
+        this.sweepIntervalMs = options.sweepIntervalMs ?? 100;
+
+        // Worker enabled toggle
         this.workerEnabled = options.worker !== false; // default true
-        this.lostThreshold = options.lostThreshold ?? 5; // frames to consider lost
     }
 
     async init(core) {
@@ -48,8 +56,8 @@ export class ArtoolkitPlugin {
             await this._startWorker();
         }
 
-        // start a simple interval to sweep lost markers by frame count (optional)
-        this._sweepInterval = setInterval(() => this._sweepMarkers(), 100); // adjust as needed
+        // start a simple interval to sweep lost markers by time computed from frameDurationMs
+        this._sweepInterval = setInterval(() => this._sweepMarkers(), this.sweepIntervalMs);
         return this;
     }
 
@@ -126,7 +134,6 @@ export class ArtoolkitPlugin {
         // Browser environment: global Worker exists
         if (typeof Worker !== 'undefined') {
             // Works in browsers and bundlers that support new URL(...) for workers
-            // with this line:
             this._worker = new Worker(new URL('./worker/worker.js', import.meta.url), { type: 'module' });
         } else {
             // Node environment: use worker_threads.Worker
@@ -206,17 +213,20 @@ export class ArtoolkitPlugin {
         }
     }
 
+    // sweep markers and emit lost events for markers not seen recently
     _sweepMarkers() {
         const now = Date.now();
+        const lostThresholdMs = this.lostThreshold * this.frameDurationMs;
         for (const [id, state] of this._markers.entries()) {
             const deltaMs = now - (state.lastSeen || 0);
-            if (deltaMs > (this.lostThreshold * 200)) {
+            if (deltaMs > lostThresholdMs) {
                 this._markers.delete(id);
                 this.core.eventBus.emit('ar:markerLost', { id, timestamp: now });
             }
         }
     }
 
+    // public helper to get marker state
     getMarkerState(markerId) {
         return this._markers.get(markerId) || null;
     }
