@@ -3,7 +3,7 @@
  * ArtoolkitPlugin
  * - maintains plugin lifecycle (init, enable, disable, dispose)
  * - optionally runs detection inside a Worker (src/worker/worker.js)
- * - subscribes to engine:update to send frames (by id) to the worker
+ * - subscribes to engine:update to send frames (ImageBitmap or frame metadata) to the worker
  * - emits ar:markerFound / ar:markerUpdated / ar:markerLost on the engine eventBus
  *
  * Works both in browsers (global Worker) and in Node (worker_threads.Worker).
@@ -75,23 +75,47 @@ export class ArtoolkitPlugin {
         return this.disable();
     }
 
-    // Engine frame handler: forward frame info to the worker
+    // Engine frame handler: forward frame info or ImageBitmap to the worker
     _onEngineUpdate(frame) {
         // frame is expected to be an object provided by the capture system, e.g.:
         // { id: number, timestamp, imageBitmap?, width, height, sourceRef }
         if (!frame) return;
 
-        // Send lightweight message to worker (worker may accept ImageBitmap later)
+        // If the frame contains an ImageBitmap (browser), transfer it to the worker for zero-copy processing.
+        if (this._worker && frame.imageBitmap) {
+            try {
+                // Browser Worker supports transfer list; Node worker_threads supports postMessage but not ImageBitmap.
+                if (typeof Worker !== 'undefined') {
+                    // Browser: use transferable ImageBitmap
+                    // The browser worker will receive event.data.payload.imageBitmap
+                    this._worker.postMessage(
+                        { type: 'processFrame', payload: { frameId: frame.id, imageBitmap: frame.imageBitmap, width: frame.width, height: frame.height } },
+                        // transfer list: ImageBitmap is transferable
+                        [frame.imageBitmap]
+                    );
+                    // After transfer, the main thread's ImageBitmap is neutered; consumer should not reuse it.
+                } else {
+                    // Node: ImageBitmap isn't available/transferable; fall back to sending metadata or ArrayBuffer if provided
+                    this._worker.postMessage({ type: 'processFrame', payload: { frameId: frame.id, width: frame.width, height: frame.height } });
+                }
+            } catch (err) {
+                console.warn('Artoolkit worker postMessage (ImageBitmap) failed, falling back to frameId only', err);
+                try {
+                    this._worker.postMessage({ type: 'processFrame', payload: { frameId: frame.id } });
+                } catch (e) {
+                    console.warn('worker postMessage failed', e);
+                }
+            }
+            return;
+        }
+
+        // No ImageBitmap: send lighter payload as before (frameId)
         if (this._worker) {
             try {
-                // In Node worker_threads, worker.postMessage exists too
                 this._worker.postMessage({ type: 'processFrame', payload: { frameId: frame.id } });
             } catch (err) {
-                // worker may be terminated; ignore
                 console.warn('Artoolkit worker postMessage failed', err);
             }
-        } else {
-            // No worker: we could run detection inline in future
         }
     }
 
@@ -102,20 +126,14 @@ export class ArtoolkitPlugin {
         // Browser environment: global Worker exists
         if (typeof Worker !== 'undefined') {
             // Works in browsers and bundlers that support new URL(...) for workers
-            this._worker = new Worker(new URL('./worker/worker.js', import.meta.url));
+            // with this line:
+            this._worker = new Worker(new URL('./worker/worker.js', import.meta.url), { type: 'module' });
         } else {
             // Node environment: use worker_threads.Worker
-            // dynamically import to avoid bundling node-only module into browser builds
             const { Worker: NodeWorker } = await import('node:worker_threads');
-            // Convert the worker module URL into a filesystem path suitable for worker_threads
             const workerUrl = new URL('./worker/worker.js', import.meta.url);
-
-            // Robust conversion to platform path:
-            // fileURLToPath handles Windows correctly and avoids duplicate drive letters.
             const { fileURLToPath } = await import('node:url');
             const workerPath = fileURLToPath(workerUrl);
-
-            // Create worker as ES module
             this._worker = new NodeWorker(workerPath, { type: 'module' });
         }
 
@@ -145,11 +163,9 @@ export class ArtoolkitPlugin {
         }
 
         try {
-            // terminate/close depending on environment
             if (typeof Worker !== 'undefined') {
                 this._worker.terminate();
             } else {
-                // Node worker_threads
                 this._worker.terminate?.();
             }
         } catch (e) {
@@ -163,10 +179,8 @@ export class ArtoolkitPlugin {
         const data = ev && ev.data !== undefined ? ev.data : ev;
         const { type, payload } = data || {};
         if (type === 'ready') {
-            // Worker initialized
             this.core?.eventBus?.emit('ar:workerReady', {});
         } else if (type === 'detectionResult') {
-            // payload: { detections: [ { id, confidence, poseMatrix (array), corners, frameId } ] }
             if (!payload || !Array.isArray(payload.detections)) return;
             for (const d of payload.detections) {
                 const id = d.id;
@@ -177,11 +191,9 @@ export class ArtoolkitPlugin {
 
                 const prev = this._markers.get(id);
                 if (!prev || !prev.visible) {
-                    // newly found
                     this._markers.set(id, { lastSeen: now, visible: true, lostCount: 0 });
                     this.core.eventBus.emit('ar:markerFound', { id, poseMatrix, confidence, corners, timestamp: now });
                 } else {
-                    // updated
                     prev.lastSeen = now;
                     prev.lostCount = 0;
                     this._markers.set(id, prev);
@@ -194,7 +206,6 @@ export class ArtoolkitPlugin {
         }
     }
 
-    // sweep markers and emit lost events for markers not seen recently
     _sweepMarkers() {
         const now = Date.now();
         for (const [id, state] of this._markers.entries()) {
@@ -206,7 +217,6 @@ export class ArtoolkitPlugin {
         }
     }
 
-    // public helper to get marker state
     getMarkerState(markerId) {
         return this._markers.get(markerId) || null;
     }

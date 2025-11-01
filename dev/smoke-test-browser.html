@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8" />
+<body>
+<h1>Browser smoke test (ImageBitmap transfer)</h1>
+
+<p>This is a simple example to run in a browser (served via http(s)) to exercise ImageBitmap transfer:
+
+    1. Create an `index.html` and include a small script that:
+    - obtains getUserMedia({ video: true })
+    - creates a hidden canvas and draws video frames into it
+    - uses `createImageBitmap(canvas)` to create an ImageBitmap
+    - emits engine.update events with `{ id, imageBitmap, width, height }`
+    - listens to `ar:markerFound`, `ar:markerUpdated`, `ar:markerLost` events
+
+    2. Ensure the plugin is initialized in a browser environment and registered with an engine object exposing `eventBus` with `on`/`emit`.
+</p>
+<video id="v" autoplay playsinline style="display:none"></video>
+<script type="module">
+    import { ArtoolkitPlugin } from '../src/plugin.js';
+
+    const eventBus = {
+        _h: new Map(),
+        on(e,h){ if(!this._h.has(e)) this._h.set(e,[]); this._h.get(e).push(h); },
+        off(e,h){ if(!this._h.has(e)) return; this._h.set(e, this._h.get(e).filter(x=>x!==h)); },
+        emit(e,p){ (this._h.get(e)||[]).forEach(fn=>fn(p)); }
+    };
+
+    const core = { eventBus };
+    const plugin = new ArtoolkitPlugin({ worker: true });
+    await plugin.init(core);
+    await plugin.enable();
+
+    eventBus.on('ar:workerReady', ()=>console.log('worker ready'));
+    eventBus.on('ar:markerFound', d => console.log('FOUND', d));
+    eventBus.on('ar:markerUpdated', d => console.log('UPDATED', d));
+    eventBus.on('ar:markerLost', d => console.log('LOST', d));
+
+    const video = document.getElementById('v');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let id = 0;
+    function tick() {
+        if (video.videoWidth === 0) {
+            requestAnimationFrame(tick);
+            return;
+        }
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        createImageBitmap(canvas).then((imageBitmap) => {
+            eventBus.emit('engine:update', { id: ++id, imageBitmap, width: canvas.width, height: canvas.height });
+            // imageBitmap will be transferred to worker; don't reuse it after emit
+        });
+        requestAnimationFrame(tick);
+    }
+    tick();
+</script>
+</body>
+```
+
+Note: host via `npx http-server` or similar so getUserMedia works in a secure context if needed.
+```

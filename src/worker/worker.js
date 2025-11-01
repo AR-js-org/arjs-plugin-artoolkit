@@ -1,29 +1,24 @@
 // Cross-platform worker stub (browser Worker and Node worker_threads)
+// Accepts ImageBitmap in browser and cleans it up after use.
+// In Node, it accepts the lightweight frame messages (frameId).
 let isNodeWorker = false;
 let parent = null;
 
 try {
-    // In Node worker_threads, require is available and worker_threads.parentPort exists.
-    // Use dynamic require to avoid bundling issues in browser builds.
-    // If this throws, assume browser worker environment.
-    // eslint-disable-next-line no-global-assign
     const wt = await import('node:worker_threads').catch(() => null);
     if (wt && wt.parentPort) {
         isNodeWorker = true;
         parent = wt.parentPort;
     }
 } catch (e) {
-    // Not running under Node worker_threads
     isNodeWorker = false;
     parent = null;
 }
 
-// Helper abstractions
 function onMessage(fn) {
     if (isNodeWorker) {
         parent.on('message', (msg) => fn(msg));
     } else {
-        // browser worker global is `self`
         self.addEventListener('message', (ev) => fn(ev.data));
     }
 }
@@ -36,29 +31,39 @@ function sendMessage(msg) {
     }
 }
 
-// Worker implementation (same logic as before)
 onMessage(async (ev) => {
     const { type, payload } = ev || {};
     try {
         if (type === 'init') {
-            // Worker init hook. Load WASM or other heavy libraries here in future.
-            // Respond ready to main thread.
             sendMessage({ type: 'ready' });
         } else if (type === 'processFrame') {
-            // payload: { imageBitmapTransferable?, width, height, frameId }
-            // This stub simulates detection latency and returns a fake marker result.
-            const { frameId } = payload || {};
-            // Simulate async detection
-            await new Promise((r) => setTimeout(r, 10));
+            // Browser: payload.imageBitmap may exist
+            const { imageBitmap, frameId } = payload || {};
 
-            // Fake detection result: one marker "demo" and identity matrix
+            // If ImageBitmap present, we could run detection on it.
+            // In this stub, we just simulate a small delay, then close the ImageBitmap.
+            if (imageBitmap && typeof imageBitmap.close === 'function') {
+                // simulate async processing
+                await new Promise((r) => setTimeout(r, 10));
+                // optional: read pixels via OffscreenCanvas if needed
+                try {
+                    // Always close the ImageBitmap to free resources
+                    imageBitmap.close();
+                } catch (e) {
+                    // ignore
+                }
+            } else {
+                // No ImageBitmap (Node mode or fallback). Simulate async detection.
+                await new Promise((r) => setTimeout(r, 10));
+            }
+
             const fakeMatrix = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
             const result = {
                 detections: [
                     {
                         id: 'demo',
                         confidence: 0.9,
-                        poseMatrix: Array.from(fakeMatrix), // structured-clonable for postMessage
+                        poseMatrix: Array.from(fakeMatrix),
                         corners: [{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],
                         frameId
                     }
