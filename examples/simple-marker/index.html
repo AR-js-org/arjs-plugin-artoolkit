@@ -88,6 +88,7 @@
                 log(`workerError: ${JSON.stringify(e)}`);
                 setStatus('Worker error (see console)', 'error');
             });
+            eventBus.on('ar:getMarker', (e) => console.log('[example] ar:getMarker', e));
 
             // Also log detectionResult from plugin console.log (plugin logs detectionResult)
             setStatus('Plugin initialized. Waiting for worker...', 'normal');
