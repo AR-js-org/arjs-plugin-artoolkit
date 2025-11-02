@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Marker Example - ARToolKit Plugin</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background-color: #f0f0f0;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Simple Marker Example</h1>
+    <p>This example demonstrates loading a pattern marker using the ARToolKit plugin.</p>
+    
+    <div id="status" class="status">Initializing...</div>
+    <button id="loadMarkerBtn" disabled>Load Marker</button>
+    
+    <h3>Event Log:</h3>
+    <div id="log" class="log"></div>
+
+    <script type="module">
+        import { ArtoolkitPlugin } from '../../src/plugin.js';
+        
+        const statusEl = document.getElementById('status');
+        const logEl = document.getElementById('log');
+        const loadMarkerBtn = document.getElementById('loadMarkerBtn');
+        
+        function log(message) {
+            const timestamp = new Date().toISOString();
+            const entry = document.createElement('div');
+            entry.textContent = `[${timestamp}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(message);
+        }
+        
+        function setStatus(message, type = 'normal') {
+            statusEl.textContent = message;
+            statusEl.className = 'status';
+            if (type === 'success') {
+                statusEl.classList.add('success');
+            } else if (type === 'error') {
+                statusEl.classList.add('error');
+            }
+        }
+        
+        // Mock core/engine for standalone example
+        const mockCore = {
+            eventBus: {
+                on: (event, handler) => {
+                    log(`EventBus: Subscribed to ${event}`);
+                    mockCore._handlers = mockCore._handlers || {};
+                    mockCore._handlers[event] = mockCore._handlers[event] || [];
+                    mockCore._handlers[event].push(handler);
+                },
+                off: (event, handler) => {
+                    log(`EventBus: Unsubscribed from ${event}`);
+                },
+                emit: (event, data) => {
+                    log(`EventBus: Event '${event}' emitted with data: ${JSON.stringify(data)}`);
+                    const handlers = mockCore._handlers?.[event] || [];
+                    handlers.forEach(h => h(data));
+                }
+            }
+        };
+        
+        async function main() {
+            try {
+                log('Creating ArtoolkitPlugin instance...');
+                const plugin = new ArtoolkitPlugin({ worker: true });
+                
+                log('Initializing plugin...');
+                await plugin.init(mockCore);
+                
+                log('Enabling plugin...');
+                await plugin.enable();
+                
+                // Wait for worker ready
+                mockCore.eventBus.on('ar:workerReady', async () => {
+                    log('Worker is ready!');
+                    setStatus('Worker ready. Click button to load marker.', 'success');
+                    loadMarkerBtn.disabled = false;
+                });
+                
+                // Handle marker found events
+                mockCore.eventBus.on('ar:markerFound', (data) => {
+                    log(`Marker found: ${JSON.stringify(data)}`);
+                });
+                
+                mockCore.eventBus.on('ar:markerUpdated', (data) => {
+                    log(`Marker updated: ${JSON.stringify(data)}`);
+                });
+                
+                mockCore.eventBus.on('ar:markerLost', (data) => {
+                    log(`Marker lost: ${JSON.stringify(data)}`);
+                });
+                
+                // Load marker button handler
+                loadMarkerBtn.addEventListener('click', async () => {
+                    try {
+                        loadMarkerBtn.disabled = true;
+                        setStatus('Loading marker...', 'normal');
+                        log('Calling plugin.loadMarker()...');
+                        
+                        const result = await plugin.loadMarker('/examples/simple-marker/data/patt.hiro', 1);
+                        
+                        log(`Marker loaded successfully! ID: ${result.markerId}, Size: ${result.size}`);
+                        setStatus(`Marker loaded! ID: ${result.markerId}`, 'success');
+                    } catch (error) {
+                        log(`Error loading marker: ${error.message}`);
+                        setStatus(`Error: ${error.message}`, 'error');
+                    } finally {
+                        loadMarkerBtn.disabled = false;
+                    }
+                });
+                
+                setStatus('Plugin initialized. Waiting for worker...', 'normal');
+                
+            } catch (error) {
+                log(`Error: ${error.message}`);
+                setStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+        
+        main();
+    </script>
+</body>
+</html>

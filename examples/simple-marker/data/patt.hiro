@@ -1,0 +1,29 @@
+# ARToolKit Pattern File
+# This is a placeholder pattern file for the Hiro marker
+# In a real implementation, this would contain the actual pattern data
+# Format: 16x16 grid of color values for pattern recognition
+#
+# For actual usage, you would need to:
+# 1. Print or display the Hiro marker
+# 2. Train the marker using ARToolKit tools
+# 3. Replace this file with the generated pattern data
+#
+# Standard Hiro marker pattern data would go here
+# Each line represents color values for marker pattern matching
+# This is a stub that simulates the structure
+255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+255 255   0   0   0   0   0   0   0   0   0   0   0   0 255 255
+255 255   0   0   0   0   0   0   0   0   0   0   0   0 255 255
+255 255   0   0 255 255 255 255 255 255 255 255   0   0 255 255
+255 255   0   0 255 255 255 255 255 255 255 255   0   0 255 255
+255 255   0   0 255 255   0   0   0   0 255 255   0   0 255 255
+255 255   0   0 255 255   0   0   0   0 255 255   0   0 255 255
+255 255   0   0 255 255   0   0   0   0 255 255   0   0 255 255
+255 255   0   0 255 255   0   0   0   0 255 255   0   0 255 255
+255 255   0   0 255 255 255 255 255 255 255 255   0   0 255 255
+255 255   0   0 255 255 255 255 255 255 255 255   0   0 255 255
+255 255   0   0   0   0   0   0   0   0   0   0   0   0 255 255
+255 255   0   0   0   0   0   0   0   0   0   0   0   0 255 255
+255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
