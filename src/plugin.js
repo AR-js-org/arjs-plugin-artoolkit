@@ -35,6 +35,10 @@ export class ArtoolkitPlugin {
 
         // Worker enabled toggle
         this.workerEnabled = options.worker !== false; // default true
+        
+        // Pending loadMarker requests: Map<requestId, { resolve, reject }>
+        this._pendingMarkerLoads = new Map();
+        this._nextLoadRequestId = 0;
     }
 
     async init(core) {
@@ -188,15 +192,8 @@ export class ArtoolkitPlugin {
         if (type === 'ready') {
             this.core?.eventBus?.emit('ar:workerReady', {});
         } else if (type === 'detectionResult') {
+            console.log('[Plugin] Received detectionResult:', payload);
             if (!payload || !Array.isArray(payload.detections)) return;
-            
-            // Log detection results to main console
-            if (payload.detections.length > 0) {
-                console.log('[Plugin] Detection results:', payload.detections.map(d => 
-                    `ID=${d.id}, confidence=${d.confidence?.toFixed(2)}`
-                ).join(', '));
-            }
-            
             for (const d of payload.detections) {
                 const id = d.id;
                 const now = Date.now();
@@ -207,13 +204,27 @@ export class ArtoolkitPlugin {
                 const prev = this._markers.get(id);
                 if (!prev || !prev.visible) {
                     this._markers.set(id, { lastSeen: now, visible: true, lostCount: 0 });
-                    console.log(`[Plugin] Marker found: ID=${id}, confidence=${confidence.toFixed(2)}`);
                     this.core.eventBus.emit('ar:markerFound', { id, poseMatrix, confidence, corners, timestamp: now });
                 } else {
                     prev.lastSeen = now;
                     prev.lostCount = 0;
                     this._markers.set(id, prev);
                     this.core.eventBus.emit('ar:markerUpdated', { id, poseMatrix, confidence, corners, timestamp: now });
+                }
+            }
+        } else if (type === 'loadMarkerResult') {
+            console.log('[Plugin] Received loadMarkerResult:', payload);
+            const { requestId, ok, error, markerId, size } = payload || {};
+            
+            if (requestId !== undefined) {
+                const pending = this._pendingMarkerLoads.get(requestId);
+                if (pending) {
+                    this._pendingMarkerLoads.delete(requestId);
+                    if (ok) {
+                        pending.resolve({ markerId, size });
+                    } else {
+                        pending.reject(new Error(error || 'Failed to load marker'));
+                    }
                 }
             }
         } else if (type === 'error') {
@@ -238,5 +249,43 @@ export class ArtoolkitPlugin {
     // public helper to get marker state
     getMarkerState(markerId) {
         return this._markers.get(markerId) || null;
+    }
+
+    /**
+     * Load a pattern marker from a URL
+     * @param {string} patternUrl - URL to the pattern file (absolute or repo-relative)
+     * @param {number} size - Size of the marker in world units (default: 1)
+     * @returns {Promise<{markerId: number, size: number}>} - Resolves with marker info when loaded
+     */
+    async loadMarker(patternUrl, size = 1) {
+        if (!this._worker) {
+            throw new Error('Worker not available. Ensure plugin is enabled and worker is running.');
+        }
+        
+        console.log(`[Plugin] Loading marker: ${patternUrl} with size ${size}`);
+        
+        return new Promise((resolve, reject) => {
+            const requestId = this._nextLoadRequestId++;
+            this._pendingMarkerLoads.set(requestId, { resolve, reject });
+            
+            // Send loadMarker message to worker
+            try {
+                this._worker.postMessage({
+                    type: 'loadMarker',
+                    payload: { patternUrl, size, requestId }
+                });
+            } catch (err) {
+                this._pendingMarkerLoads.delete(requestId);
+                reject(new Error(`Failed to send loadMarker message: ${err.message}`));
+            }
+            
+            // Set a timeout to prevent hanging promises
+            setTimeout(() => {
+                if (this._pendingMarkerLoads.has(requestId)) {
+                    this._pendingMarkerLoads.delete(requestId);
+                    reject(new Error('loadMarker request timed out'));
+                }
+            }, 10000); // 10 second timeout
+        });
     }
 }
