@@ -8,15 +8,21 @@ let parent = null;
 let arController = null;
 let arControllerInitialized = false;
 
-try {
-    const wt = await import('node:worker_threads').catch(() => null);
-    if (wt && wt.parentPort) {
-        isNodeWorker = true;
-        parent = wt.parentPort;
+// Detect environment and setup worker communication
+// Only try to import node:worker_threads if we're in a Node.js environment
+if (typeof self === 'undefined') {
+    // We're in Node.js (no 'self' global)
+    try {
+        const wt = await import('node:worker_threads').catch(() => null);
+        if (wt && wt.parentPort) {
+            isNodeWorker = true;
+            parent = wt.parentPort;
+        }
+    } catch (e) {
+        // Fallback: not in worker_threads context
+        isNodeWorker = false;
+        parent = null;
     }
-} catch (e) {
-    isNodeWorker = false;
-    parent = null;
 }
 
 function onMessage(fn) {
