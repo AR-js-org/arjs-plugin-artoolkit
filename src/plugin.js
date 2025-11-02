@@ -212,6 +212,10 @@ export class ArtoolkitPlugin {
                     this.core.eventBus.emit('ar:markerUpdated', { id, poseMatrix, confidence, corners, timestamp: now });
                 }
             }
+        } else if (type === 'getMarker') {
+            // Forward AR.js-style getMarker payload (emitted by the worker) to the app/event bus
+            try { console.log('[Plugin] getMarker', payload); } catch (_) {}
+            this.core?.eventBus?.emit('ar:getMarker', payload);
         } else if (type === 'loadMarkerResult') {
             console.log('[Plugin] Received loadMarkerResult:', payload);
             const { requestId, ok, error, markerId, size } = payload || {};
