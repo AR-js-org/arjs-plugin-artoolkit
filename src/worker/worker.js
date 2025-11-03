@@ -13,20 +13,24 @@ let offscreenCtx = null;
 let canvasW = 0;
 let canvasH = 0;
 
+// Marker and filtering state
+const loadedMarkers = new Map();    // patternUrl -> markerId
+const loadingMarkers = new Map();   // patternUrl -> Promise<markerId>
+const trackedPatternIds = new Set(); // Set<number>
+let PATTERN_MARKER_TYPE = 0;        // will be read from ARToolkit if available
+let MIN_CONFIDENCE = 0.6;           // configurable via init payload
+
 // Init backoff state
-let initInProgress = null;         // Promise | null
-let initFailCount = 0;             // increases on each failure
-let initFailedUntil = 0;           // timestamp when next retry is allowed
+let initInProgress = null;
+let initFailCount = 0;
+let initFailedUntil = 0;
 
-// Marker cache/dedupe
-const loadedMarkers = new Map();   // patternUrl -> markerId
-const loadingMarkers = new Map();  // patternUrl -> Promise<markerId>
-
-// Init-time options (can be overridden via init payload if you already set this up)
+// Init-time options (overridable from main thread)
 let INIT_OPTS = {
     moduleUrl: null,
     cameraParametersUrl: null,
-    wasmBaseUrl: null
+    wasmBaseUrl: null,
+    minConfidence: null
 };
 
 if (typeof self === 'undefined') {
@@ -79,22 +83,45 @@ function serializeGetMarkerEvent(ev) {
     }
 }
 
+function shouldForwardGetMarker(event) {
+    const data = event?.data || {};
+    const type = data.type;
+    const marker = data.marker || {};
+    const id = marker.idPatt ?? marker.patternId ?? marker.pattern_id ?? null;
+    const conf = marker.cfPatt ?? marker.confidence ?? 0;
+    const matrix = data.matrix;
+
+    // Type must be PATTERN_MARKER (fallback numeric 0 if constants not available)
+    if (type !== PATTERN_MARKER_TYPE) return false;
+
+    // Confidence gate
+    if (!(Number.isFinite(conf) && conf >= MIN_CONFIDENCE)) return false;
+
+    // Matrix must exist with at least 16 values
+    const m = Array.isArray(matrix) ? matrix : (matrix && Array.from(matrix)) || null;
+    if (!m || m.length < 16) return false;
+
+    // If we have tracked IDs, only forward those IDs
+    if (trackedPatternIds.size && id != null && !trackedPatternIds.has(id)) return false;
+
+    return true;
+}
+
 function attachGetMarkerForwarder() {
     if (!arController || typeof arController.addEventListener !== 'function' || getMarkerForwarderAttached) return;
     arController.addEventListener('getMarker', (event) => {
+        if (!shouldForwardGetMarker(event)) return;
         const payload = serializeGetMarkerEvent(event);
-        try { console.log('[Worker] getMarker', payload); } catch {}
+        try { console.log('[Worker] getMarker (filtered)', payload); } catch {}
         sendMessage({ type: 'getMarker', payload });
     });
     getMarkerForwarderAttached = true;
 }
 
-// IMPORTANT: this function should be the only place that initializes ARToolKit.
-// It is guarded by initInProgress and a failure backoff.
+// Guarded init with backoff
 async function initArtoolkit(width = 640, height = 480) {
     if (arControllerInitialized) return true;
 
-    // Respect backoff window
     const now = Date.now();
     if (now < initFailedUntil) {
         const waitMs = initFailedUntil - now;
@@ -102,7 +129,6 @@ async function initArtoolkit(width = 640, height = 480) {
         return false;
     }
 
-    // If an init is already in-flight, await it
     if (initInProgress) {
         try {
             await initInProgress;
@@ -112,7 +138,6 @@ async function initArtoolkit(width = 640, height = 480) {
         }
     }
 
-    // Start a new init attempt
     initInProgress = (async () => {
         try {
             const jsartoolkit = await (async () => {
@@ -120,11 +145,16 @@ async function initArtoolkit(width = 640, height = 480) {
                     console.log('[Worker] Loading artoolkit from moduleUrl:', INIT_OPTS.moduleUrl);
                     return await import(INIT_OPTS.moduleUrl);
                 }
-                // Fallback to bare import if your environment supports it (import map/bundler)
+                // If your environment supports bare import (import map/bundler), this will work:
                 return await import('@ar-js-org/artoolkit5-js');
             })();
 
-            const { ARController } = jsartoolkit;
+            //const { ARController, ARToolkit } = jsartoolkit;
+
+            // Read the constant if available; else keep default 0
+            if (ARToolkit && typeof ARToolkit.PATTERN_MARKER === 'number') {
+                PATTERN_MARKER_TYPE = ARToolkit.PATTERN_MARKER;
+            }
 
             if (INIT_OPTS.wasmBaseUrl && ARController) {
                 try {
@@ -132,10 +162,14 @@ async function initArtoolkit(width = 640, height = 480) {
                 } catch {}
             }
 
+            if (typeof INIT_OPTS.minConfidence === 'number') {
+                MIN_CONFIDENCE = INIT_OPTS.minConfidence;
+            }
+
             const camUrl = INIT_OPTS.cameraParametersUrl
                 || 'https://raw.githack.com/AR-js-org/AR.js/master/data/data/camera_para.dat';
 
-            console.log('[Worker] ARToolKit init', { width, height, camUrl });
+            console.log('[Worker] ARToolKit init', { width, height, camUrl, minConfidence: MIN_CONFIDENCE, patternType: PATTERN_MARKER_TYPE });
             arController = await ARToolkit.ARController.initWithDimensions(width, height, camUrl, {});
             arControllerInitialized = !!arController;
             console.log('[Worker] ARToolKit initialized:', arControllerInitialized);
@@ -144,7 +178,6 @@ async function initArtoolkit(width = 640, height = 480) {
 
             attachGetMarkerForwarder();
 
-            // Reset failure state
             initFailCount = 0;
             initFailedUntil = 0;
         } catch (err) {
@@ -152,31 +185,25 @@ async function initArtoolkit(width = 640, height = 480) {
             arController = null;
             arControllerInitialized = false;
 
-            // Exponential backoff up to 30s
-            initFailCount = Math.min(initFailCount + 1, 6); // caps at ~64x
-            const delay = Math.min(30000, 1000 * Math.pow(2, initFailCount)); // 1s,2s,4s,8s,16s,30s
+            initFailCount = Math.min(initFailCount + 1, 6);
+            const delay = Math.min(30000, 1000 * Math.pow(2, initFailCount));
             initFailedUntil = Date.now() + delay;
 
-            // Surface a single error to main thread (optional)
             sendMessage({ type: 'error', payload: { message: `ARToolKit init failed (${err?.message || err}). Retrying in ${delay}ms.` } });
             throw err;
         } finally {
-            // Mark as done (success or failure)
-            const ok = arControllerInitialized;
             initInProgress = null;
-            return ok;
+            return arControllerInitialized;
         }
     })();
 
     try {
         await initInProgress;
-    } catch {
-        // already handled
-    }
+    } catch {}
     return arControllerInitialized;
 }
 
-// Dedupe marker loading by URL
+// Dedupe marker loading by URL and record tracked IDs
 async function loadPatternOnce(patternUrl) {
     if (loadedMarkers.has(patternUrl)) return loadedMarkers.get(patternUrl);
     if (loadingMarkers.has(patternUrl)) return loadingMarkers.get(patternUrl);
@@ -184,6 +211,7 @@ async function loadPatternOnce(patternUrl) {
     const p = (async () => {
         const id = await arController.loadMarker(patternUrl);
         loadedMarkers.set(patternUrl, id);
+        trackedPatternIds.add(id);
         loadingMarkers.delete(patternUrl);
         return id;
     })().catch((e) => {
@@ -199,11 +227,14 @@ onMessage(async (ev) => {
     const { type, payload } = ev || {};
     try {
         if (type === 'init') {
-            // Accept init overrides
             if (payload && typeof payload === 'object') {
-                INIT_OPTS.moduleUrl = payload.moduleUrl || INIT_OPTS.moduleUrl;
-                INIT_OPTS.cameraParametersUrl = payload.cameraParametersUrl || INIT_OPTS.cameraParametersUrl;
-                INIT_OPTS.wasmBaseUrl = payload.wasmBaseUrl || INIT_OPTS.wasmBaseUrl;
+                INIT_OPTS.moduleUrl = payload.moduleUrl ?? INIT_OPTS.moduleUrl;
+                INIT_OPTS.cameraParametersUrl = payload.cameraParametersUrl ?? INIT_OPTS.cameraParametersUrl;
+                INIT_OPTS.wasmBaseUrl = payload.wasmBaseUrl ?? INIT_OPTS.wasmBaseUrl;
+                if (typeof payload.minConfidence === 'number') {
+                    INIT_OPTS.minConfidence = payload.minConfidence;
+                    MIN_CONFIDENCE = payload.minConfidence;
+                }
             }
             sendMessage({ type: 'ready' });
             return;
@@ -235,14 +266,11 @@ onMessage(async (ev) => {
 
         if (type === 'processFrame') {
             const { imageBitmap, width, height } = payload || {};
-
-            // Browser path: only attempt init at controlled cadence (guard handles backoff)
             if (!isNodeWorker && imageBitmap) {
                 try {
                     const w = width || imageBitmap.width || 640;
                     const h = height || imageBitmap.height || 480;
 
-                    // Attempt init once; if it fails, guard prevents hammering it per-frame
                     await initArtoolkit(w, h);
 
                     if (!offscreenCanvas || canvasW !== w || canvasH !== h) {
@@ -269,12 +297,10 @@ onMessage(async (ev) => {
                     }
                 } catch (err) {
                     console.error('[Worker] processFrame error:', err);
-                    // No spam: let initArtoolkit handle error posting and backoff logging
                 }
                 return;
             }
 
-            // Node fallback: do nothing (no real AR in Node)
             await new Promise((r) => setTimeout(r, 5));
             return;
         }

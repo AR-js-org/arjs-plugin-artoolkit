@@ -73,6 +73,7 @@
             plugin = new ArtoolkitPlugin({ worker: true,
                 // ESM bundle path served by your dev server
                 artoolkitModuleUrl: '../../node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
+                cameraParametersUrl: "../../examples/simple-marker/data/camera_para.dat"
             });
             await plugin.init(core);
             await plugin.enable();
@@ -106,8 +107,7 @@
         try {
             startCamBtn.disabled = true;
             log('Starting camera...');
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            video.srcObject = stream;
+            video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             // emit engine:update frames using createImageBitmap
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
