@@ -276,7 +276,7 @@ onMessage(async (ev) => {
                     if (!offscreenCanvas || canvasW !== w || canvasH !== h) {
                         canvasW = w; canvasH = h;
                         offscreenCanvas = new OffscreenCanvas(canvasW, canvasH);
-                        offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: false });
+                        offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
                     }
 
                     offscreenCtx.clearRect(0, 0, canvasW, canvasH);
