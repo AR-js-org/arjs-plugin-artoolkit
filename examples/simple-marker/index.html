@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simple Marker Example - ARToolKit Plugin</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
+        h1 { color: #333; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; background-color: #f0f0f0; }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .log { background:#f5f5f5; padding:10px; border-radius:4px; max-height:300px; overflow-y:auto; font-family:monospace; font-size:12px; }
+        button { padding:10px 16px; margin:6px; cursor:pointer; border:none; border-radius:4px; background:#007bff; color:white; }
+        button[disabled] { background:#999; cursor:default; }
+        #video { display:none; }
+    </style>
+</head>
+<body>
+<h1>Simple Marker Example</h1>
+<p>This example demonstrates loading a pattern marker using the ARToolKit plugin.</p>
+
+<div id="status" class="status">Initializing...</div>
+<div>
+    <button id="startCamBtn">Start Camera</button>
+    <button id="loadMarkerBtn" disabled>Load Marker</button>
+</div>
+
+<h3>Event Log:</h3>
+<div id="log" class="log"></div>
+
+<video id="video" autoplay playsinline></video>
+
+<script type="module">
+    import { ArtoolkitPlugin } from '../../src/plugin.js';
+
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const loadMarkerBtn = document.getElementById('loadMarkerBtn');
+    const startCamBtn = document.getElementById('startCamBtn');
+    const video = document.getElementById('video');
+
+    function log(message) {
+        const ts = new Date().toISOString();
+        const el = document.createElement('div');
+        el.textContent = `[${ts}] ${message}`;
+        logEl.appendChild(el);
+        logEl.scrollTop = logEl.scrollHeight;
+        console.log(message);
+    }
+
+    function setStatus(msg, type = 'normal') {
+        statusEl.textContent = msg;
+        statusEl.className = 'status';
+        if (type === 'success') statusEl.classList.add('success');
+        if (type === 'error') statusEl.classList.add('error');
+    }
+
+    // Minimal eventBus / core used by the plugin
+    const eventBus = {
+        _h: new Map(),
+        on(e, h) { if (!this._h.has(e)) this._h.set(e, []); this._h.get(e).push(h); },
+        off(e, h) { if (!this._h.has(e)) return; this._h.set(e, this._h.get(e).filter(x => x !== h)); },
+        emit(e, p) { (this._h.get(e) || []).forEach(fn => fn(p)); }
+    };
+    const core = { eventBus };
+
+    let plugin;
+
+    async function start() {
+        try {
+            log('Creating ArtoolkitPlugin instance...');
+            plugin = new ArtoolkitPlugin({ worker: true,
+                // ESM bundle path served by your dev server
+                artoolkitModuleUrl: '../../node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
+                cameraParametersUrl: "../../examples/simple-marker/data/camera_para.dat"
+            });
+            await plugin.init(core);
+            await plugin.enable();
+
+            // wire event handlers
+            eventBus.on('ar:workerReady', () => {
+                log('Worker ready');
+                setStatus('Worker ready. Start camera and then load marker.', 'success');
+                loadMarkerBtn.disabled = false;
+            });
+
+            eventBus.on('ar:markerFound', d => log(`markerFound: ${JSON.stringify(d)}`));
+            eventBus.on('ar:markerUpdated', d => log(`markerUpdated: ${JSON.stringify(d)}`));
+            eventBus.on('ar:markerLost', d => log(`markerLost: ${JSON.stringify(d)}`));
+            eventBus.on('ar:workerError', e => {
+                log(`workerError: ${JSON.stringify(e)}`);
+                setStatus('Worker error (see console)', 'error');
+            });
+            eventBus.on('ar:getMarker', (e) => console.log('[example] ar:getMarker', e));
+
+            // Also log detectionResult from plugin console.log (plugin logs detectionResult)
+            setStatus('Plugin initialized. Waiting for worker...', 'normal');
+        } catch (err) {
+            log('Init error: ' + (err && err.message ? err.message : err));
+            setStatus('Initialization error', 'error');
+        }
+    }
+
+    // Start camera when user clicks (to ensure user gesture)
+    startCamBtn.addEventListener('click', async () => {
+        try {
+            startCamBtn.disabled = true;
+            log('Starting camera...');
+            video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            // emit engine:update frames using createImageBitmap
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            let id = 0;
+
+            async function tick() {
+                if (video.videoWidth === 0) { requestAnimationFrame(tick); return; }
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0);
+                const imageBitmap = await createImageBitmap(canvas);
+                // emit engine:update; plugin will transfer the ImageBitmap to the worker
+                eventBus.emit('engine:update', { id: ++id, imageBitmap, width: canvas.width, height: canvas.height });
+                requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+            log('Camera started.');
+            setStatus('Camera started. You can now load the marker.', 'success');
+        } catch (err) {
+            log('Camera error: ' + (err && err.message ? err.message : err));
+            setStatus('Camera error', 'error');
+            startCamBtn.disabled = false;
+        }
+    });
+
+    // Load marker button uses plugin.loadMarker(...)
+    loadMarkerBtn.addEventListener('click', async () => {
+        if (!plugin) return log('Plugin not ready');
+        loadMarkerBtn.disabled = true;
+        setStatus('Loading marker...', 'normal');
+        try {
+            // Use absolute/site-root-relative URL so worker can fetch it.
+            const patternUrl = '/examples/simple-marker/data/patt.hiro';
+            log(`Requesting loadMarker for ${patternUrl}`);
+            const res = await plugin.loadMarker(patternUrl, 1);
+            log(`loadMarker result: ${JSON.stringify(res)}`);
+            setStatus(`Marker loaded (id=${res.markerId})`, 'success');
+        } catch (err) {
+            log('loadMarker failed: ' + (err && err.message ? err.message : err));
+            setStatus('Failed to load marker', 'error');
+        } finally {
+            loadMarkerBtn.disabled = false;
+        }
+    });
+
+    // initialize plugin but don't start camera automatically
+    start();
+</script>
+</body>
+</html>
