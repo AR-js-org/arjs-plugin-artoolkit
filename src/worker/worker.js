@@ -192,7 +192,6 @@ async function initArtoolkit(width = 640, height = 480) {
             throw err;
         } finally {
             initInProgress = null;
-            return arControllerInitialized;
         }
     })();
 
