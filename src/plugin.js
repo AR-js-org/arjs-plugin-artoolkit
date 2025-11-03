@@ -157,7 +157,14 @@ export class ArtoolkitPlugin {
 
         // If worker supports postMessage init, send init
         try {
-            this._worker.postMessage?.({ type: 'init' });
+            this._worker.postMessage?.({
+                type: 'init',
+                payload: {
+                    moduleUrl: this.options.artoolkitModuleUrl || null,
+                    cameraParametersUrl: this.options.cameraParametersUrl || null,
+                    wasmBaseUrl: this.options.wasmBaseUrl || null
+                }
+            });
         } catch (e) {
             // ignore
         }

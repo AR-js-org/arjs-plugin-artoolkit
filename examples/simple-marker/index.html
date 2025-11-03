@@ -70,7 +70,10 @@
     async function start() {
         try {
             log('Creating ArtoolkitPlugin instance...');
-            plugin = new ArtoolkitPlugin({ worker: true });
+            plugin = new ArtoolkitPlugin({ worker: true,
+                // ESM bundle path served by your dev server
+                artoolkitModuleUrl: '../../node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
+            });
             await plugin.init(core);
             await plugin.enable();
 

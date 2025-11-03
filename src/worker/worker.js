@@ -1,6 +1,6 @@
 // Cross-platform worker integrating ARToolKit in browser Workers.
 // - Browser: processes ImageBitmap → OffscreenCanvas → ARToolKit.process(canvas)
-// - Node: keeps stub behavior
+// - Node: keeps stub behavior if needed
 let isNodeWorker = false;
 let parent = null;
 
@@ -12,6 +12,22 @@ let offscreenCanvas = null;
 let offscreenCtx = null;
 let canvasW = 0;
 let canvasH = 0;
+
+// Init backoff state
+let initInProgress = null;         // Promise | null
+let initFailCount = 0;             // increases on each failure
+let initFailedUntil = 0;           // timestamp when next retry is allowed
+
+// Marker cache/dedupe
+const loadedMarkers = new Map();   // patternUrl -> markerId
+const loadingMarkers = new Map();  // patternUrl -> Promise<markerId>
+
+// Init-time options (can be overridden via init payload if you already set this up)
+let INIT_OPTS = {
+    moduleUrl: null,
+    cameraParametersUrl: null,
+    wasmBaseUrl: null
+};
 
 if (typeof self === 'undefined') {
     try {
@@ -36,7 +52,7 @@ function sendMessage(msg) {
     else self.postMessage(msg);
 }
 
-// AR.js-style getMarker event serializer
+// Serialize AR.js-style getMarker event into a transferable payload
 function serializeGetMarkerEvent(ev) {
     try {
         const data = ev?.data || {};
@@ -73,40 +89,122 @@ function attachGetMarkerForwarder() {
     getMarkerForwarderAttached = true;
 }
 
-async function initArtoolkit(width = 640, height = 480, cameraParametersUrl) {
+// IMPORTANT: this function should be the only place that initializes ARToolKit.
+// It is guarded by initInProgress and a failure backoff.
+async function initArtoolkit(width = 640, height = 480) {
     if (arControllerInitialized) return true;
-    try {
-        // Lazy import to keep worker module-light
 
-        const cdn = 'https://cdn.jsdelivr.net/npm/@ar-js-org/artoolkit5-js@0.3.2/dist/ARToolkit.min.js';
-        console.log('[Worker] Trying CDN import:', cdn);
-        // const jsartoolkit = await import(cdn);
-        await import(cdn);
-        // const { ARController } = jsartoolkit;
-        // console.log(ARToolkit)
-
-        const camUrl = cameraParametersUrl
-            || 'https://raw.githack.com/AR-js-org/AR.js/master/data/data/camera_para.dat';
-
-        console.log('[Worker] ARToolKit init', { width, height, camUrl });
-        arController = await ARToolkit.ARController.initWithDimensions(width, height, camUrl, {});
-        arControllerInitialized = !!arController;
-        console.log('[Worker] ARToolKit initialized:', arControllerInitialized);
-
-        attachGetMarkerForwarder();
-        return true;
-    } catch (err) {
-        console.error('[Worker] ARToolKit init failed:', err);
-        arController = null;
-        arControllerInitialized = false;
+    // Respect backoff window
+    const now = Date.now();
+    if (now < initFailedUntil) {
+        const waitMs = initFailedUntil - now;
+        console.warn('[Worker] initArtoolkit skipped due to backoff (ms):', waitMs);
         return false;
     }
+
+    // If an init is already in-flight, await it
+    if (initInProgress) {
+        try {
+            await initInProgress;
+            return arControllerInitialized;
+        } catch {
+            return false;
+        }
+    }
+
+    // Start a new init attempt
+    initInProgress = (async () => {
+        try {
+            const jsartoolkit = await (async () => {
+                if (INIT_OPTS.moduleUrl) {
+                    console.log('[Worker] Loading artoolkit from moduleUrl:', INIT_OPTS.moduleUrl);
+                    return await import(INIT_OPTS.moduleUrl);
+                }
+                // Fallback to bare import if your environment supports it (import map/bundler)
+                return await import('@ar-js-org/artoolkit5-js');
+            })();
+
+            const { ARController } = jsartoolkit;
+
+            if (INIT_OPTS.wasmBaseUrl && ARController) {
+                try {
+                    ARController.baseURL = INIT_OPTS.wasmBaseUrl.endsWith('/') ? INIT_OPTS.wasmBaseUrl : INIT_OPTS.wasmBaseUrl + '/';
+                } catch {}
+            }
+
+            const camUrl = INIT_OPTS.cameraParametersUrl
+                || 'https://raw.githack.com/AR-js-org/AR.js/master/data/data/camera_para.dat';
+
+            console.log('[Worker] ARToolKit init', { width, height, camUrl });
+            arController = await ARToolkit.ARController.initWithDimensions(width, height, camUrl, {});
+            arControllerInitialized = !!arController;
+            console.log('[Worker] ARToolKit initialized:', arControllerInitialized);
+
+            if (!arControllerInitialized) throw new Error('ARController.initWithDimensions returned falsy controller');
+
+            attachGetMarkerForwarder();
+
+            // Reset failure state
+            initFailCount = 0;
+            initFailedUntil = 0;
+        } catch (err) {
+            console.error('[Worker] ARToolKit init failed:', err);
+            arController = null;
+            arControllerInitialized = false;
+
+            // Exponential backoff up to 30s
+            initFailCount = Math.min(initFailCount + 1, 6); // caps at ~64x
+            const delay = Math.min(30000, 1000 * Math.pow(2, initFailCount)); // 1s,2s,4s,8s,16s,30s
+            initFailedUntil = Date.now() + delay;
+
+            // Surface a single error to main thread (optional)
+            sendMessage({ type: 'error', payload: { message: `ARToolKit init failed (${err?.message || err}). Retrying in ${delay}ms.` } });
+            throw err;
+        } finally {
+            // Mark as done (success or failure)
+            const ok = arControllerInitialized;
+            initInProgress = null;
+            return ok;
+        }
+    })();
+
+    try {
+        await initInProgress;
+    } catch {
+        // already handled
+    }
+    return arControllerInitialized;
+}
+
+// Dedupe marker loading by URL
+async function loadPatternOnce(patternUrl) {
+    if (loadedMarkers.has(patternUrl)) return loadedMarkers.get(patternUrl);
+    if (loadingMarkers.has(patternUrl)) return loadingMarkers.get(patternUrl);
+
+    const p = (async () => {
+        const id = await arController.loadMarker(patternUrl);
+        loadedMarkers.set(patternUrl, id);
+        loadingMarkers.delete(patternUrl);
+        return id;
+    })().catch((e) => {
+        loadingMarkers.delete(patternUrl);
+        throw e;
+    });
+
+    loadingMarkers.set(patternUrl, p);
+    return p;
 }
 
 onMessage(async (ev) => {
     const { type, payload } = ev || {};
     try {
         if (type === 'init') {
+            // Accept init overrides
+            if (payload && typeof payload === 'object') {
+                INIT_OPTS.moduleUrl = payload.moduleUrl || INIT_OPTS.moduleUrl;
+                INIT_OPTS.cameraParametersUrl = payload.cameraParametersUrl || INIT_OPTS.cameraParametersUrl;
+                INIT_OPTS.wasmBaseUrl = payload.wasmBaseUrl || INIT_OPTS.wasmBaseUrl;
+            }
             sendMessage({ type: 'ready' });
             return;
         }
@@ -118,12 +216,10 @@ onMessage(async (ev) => {
                 return;
             }
             try {
-                if (!arControllerInitialized) {
-                    // Initialize with some defaults; will be resized on first frame as needed
-                    const ok = await initArtoolkit(640, 480);
-                    if (!ok) throw new Error('Failed to initialize ARToolKit');
-                }
-                const markerId = await arController.loadMarker(patternUrl);
+                const ok = await initArtoolkit(640, 480);
+                if (!ok) throw new Error('ARToolKit not initialized');
+
+                const markerId = await loadPatternOnce(patternUrl);
                 if (typeof arController.trackPatternMarkerId === 'function') {
                     arController.trackPatternMarkerId(markerId, size);
                 } else if (typeof arController.trackPatternMarker === 'function') {
@@ -139,18 +235,16 @@ onMessage(async (ev) => {
 
         if (type === 'processFrame') {
             const { imageBitmap, width, height } = payload || {};
-            // In browser: drive ARToolKit processing so it emits getMarker (with the real matrix)
+
+            // Browser path: only attempt init at controlled cadence (guard handles backoff)
             if (!isNodeWorker && imageBitmap) {
                 try {
                     const w = width || imageBitmap.width || 640;
                     const h = height || imageBitmap.height || 480;
 
-                    // Initialize ARToolKit with actual frame size (first time)
-                    if (!arControllerInitialized) {
-                        await initArtoolkit(w, h);
-                    }
+                    // Attempt init once; if it fails, guard prevents hammering it per-frame
+                    await initArtoolkit(w, h);
 
-                    // Prepare OffscreenCanvas
                     if (!offscreenCanvas || canvasW !== w || canvasH !== h) {
                         canvasW = w; canvasH = h;
                         offscreenCanvas = new OffscreenCanvas(canvasW, canvasH);
@@ -163,10 +257,8 @@ onMessage(async (ev) => {
 
                     if (arControllerInitialized && arController) {
                         try {
-                            // Prefer passing canvas to ARToolKit so it can compute matrix and emit getMarker
                             arController.process(offscreenCanvas);
                         } catch (e) {
-                            // Fallback: pass ImageData if this build requires it
                             try {
                                 const imgData = offscreenCtx.getImageData(0, 0, canvasW, canvasH);
                                 arController.process(imgData);
@@ -177,7 +269,7 @@ onMessage(async (ev) => {
                     }
                 } catch (err) {
                     console.error('[Worker] processFrame error:', err);
-                    sendMessage({ type: 'error', payload: { message: err?.message || String(err) } });
+                    // No spam: let initArtoolkit handle error posting and backoff logging
                 }
                 return;
             }
