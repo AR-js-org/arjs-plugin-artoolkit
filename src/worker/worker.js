@@ -149,7 +149,6 @@ async function initArtoolkit(width = 640, height = 480) {
                 return await import('@ar-js-org/artoolkit5-js');
             })();
 
-            //const { ARController, ARToolkit } = jsartoolkit;
 
             // Read the constant if available; else keep default 0
             if (ARToolkit && typeof ARToolkit.PATTERN_MARKER === 'number') {
