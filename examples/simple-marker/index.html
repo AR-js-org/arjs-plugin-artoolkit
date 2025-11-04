@@ -72,29 +72,35 @@
             log('Creating ArtoolkitPlugin instance (dist build)…');
             plugin = new ArtoolkitPlugin({
                 worker: true,
-                cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat',
-                // minConfidence: 0.6,
+                cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat'
             });
-            await plugin.init(core);
-            await plugin.enable();
 
+            // Register listeners BEFORE enable to avoid missing early 'ready'
             eventBus.on('ar:workerReady', () => {
                 log('Worker ready');
                 setStatus('Worker ready. Start camera and then load marker.', 'success');
                 loadMarkerBtn.disabled = false;
             });
-
             eventBus.on('ar:workerError', e => {
                 log(`workerError: ${JSON.stringify(e)}`);
                 setStatus('Worker error (see console)', 'error');
             });
-
             eventBus.on('ar:getMarker', (e) => console.log('[example] ar:getMarker', e));
             eventBus.on('ar:markerFound', d => log(`markerFound: ${JSON.stringify(d)}`));
             eventBus.on('ar:markerUpdated', d => log(`markerUpdated: ${JSON.stringify(d)}`));
             eventBus.on('ar:markerLost', d => log(`markerLost: ${JSON.stringify(d)}`));
 
-            setStatus('Plugin initialized. Waiting for worker…', 'normal');
+            await plugin.init(core);
+            await plugin.enable();
+
+            // Fallback: if worker became ready during enable, honor it
+            if (plugin.workerReady) {
+                log('Worker was already ready (post-enable).');
+                setStatus('Worker ready. Start camera and then load marker.', 'success');
+                loadMarkerBtn.disabled = false;
+            } else {
+                setStatus('Plugin initialized. Waiting for worker…', 'normal');
+            }
         } catch (err) {
             log('Init error: ' + (err && err.message ? err.message : err));
             setStatus('Initialization error', 'error');

@@ -39,6 +39,7 @@ export class ArtoolkitPlugin {
         // Pending loadMarker requests: Map<requestId, { resolve, reject }>
         this._pendingMarkerLoads = new Map();
         this._nextLoadRequestId = 0;
+        this.workerReady = false;
     }
 
     async init(core) {
@@ -165,9 +166,13 @@ export class ArtoolkitPlugin {
                     wasmBaseUrl: this.options.wasmBaseUrl || null
                 }
             });
-        } catch (e) {
-            // ignore
-        }
+            // Watchdog: if 'ready' wasn’t received shortly, resend a no-op init once
+            setTimeout(() => {
+                if (!this.workerReady) {
+                    try { this._worker?.postMessage?.({ type: 'init', payload: {} }); } catch {}
+                }
+            }, 500);
+        } catch (e) {}
     }
 
     _stopWorker() {
@@ -197,6 +202,8 @@ export class ArtoolkitPlugin {
         const data = ev && ev.data !== undefined ? ev.data : ev;
         const { type, payload } = data || {};
         if (type === 'ready') {
+            console.log('[Plugin] Worker ready');
+            this.workerReady = true;
             this.core?.eventBus?.emit('ar:workerReady', {});
         } else if (type === 'detectionResult') {
             console.log('[Plugin] Received detectionResult:', payload);
