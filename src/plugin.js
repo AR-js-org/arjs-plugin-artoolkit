@@ -35,10 +35,12 @@ export class ArtoolkitPlugin {
 
         // Worker enabled toggle
         this.workerEnabled = options.worker !== false; // default true
-        
+
         // Pending loadMarker requests: Map<requestId, { resolve, reject }>
         this._pendingMarkerLoads = new Map();
         this._nextLoadRequestId = 0;
+
+        // Track worker readiness (used by examples to avoid UI race)
         this.workerReady = false;
     }
 
@@ -172,7 +174,9 @@ export class ArtoolkitPlugin {
                     try { this._worker?.postMessage?.({ type: 'init', payload: {} }); } catch {}
                 }
             }, 500);
-        } catch (e) {}
+        } catch (e) {
+            // ignore
+        }
     }
 
     _stopWorker() {
@@ -197,6 +201,31 @@ export class ArtoolkitPlugin {
         this._worker = null;
     }
 
+    // NEW: Normalize detection updates and emit markerFound/Updated
+    _applyDetections(detections) {
+        if (!detections || !Array.isArray(detections)) return;
+        for (const d of detections) {
+            const id = d?.id;
+            if (id === null || id === undefined) continue;
+
+            const now = Date.now();
+            const poseMatrix = new Float32Array(d.poseMatrix || []);
+            const confidence = d.confidence ?? 0;
+            const corners = d.corners ?? [];
+
+            const prev = this._markers.get(id);
+            if (!prev || !prev.visible) {
+                this._markers.set(id, { lastSeen: now, visible: true, lostCount: 0 });
+                this.core?.eventBus?.emit('ar:markerFound', { id, poseMatrix, confidence, corners, timestamp: now });
+            } else {
+                prev.lastSeen = now;
+                prev.lostCount = 0;
+                this._markers.set(id, prev);
+                this.core?.eventBus?.emit('ar:markerUpdated', { id, poseMatrix, confidence, corners, timestamp: now });
+            }
+        }
+    }
+
     _onWorkerMessage(ev) {
         // worker_threads messages arrive as the raw payload; browser workers wrap in event.data
         const data = ev && ev.data !== undefined ? ev.data : ev;
@@ -207,33 +236,54 @@ export class ArtoolkitPlugin {
             this.core?.eventBus?.emit('ar:workerReady', {});
         } else if (type === 'detectionResult') {
             console.log('[Plugin] Received detectionResult:', payload);
+            // Normalize to marker events
             if (!payload || !Array.isArray(payload.detections)) return;
-            for (const d of payload.detections) {
-                const id = d.id;
-                const now = Date.now();
-                const poseMatrix = new Float32Array(d.poseMatrix || []);
-                const confidence = d.confidence ?? 0;
-                const corners = d.corners ?? [];
-
-                const prev = this._markers.get(id);
-                if (!prev || !prev.visible) {
-                    this._markers.set(id, { lastSeen: now, visible: true, lostCount: 0 });
-                    this.core.eventBus.emit('ar:markerFound', { id, poseMatrix, confidence, corners, timestamp: now });
-                } else {
-                    prev.lastSeen = now;
-                    prev.lostCount = 0;
-                    this._markers.set(id, prev);
-                    this.core.eventBus.emit('ar:markerUpdated', { id, poseMatrix, confidence, corners, timestamp: now });
-                }
-            }
+            this._applyDetections(payload.detections);
         } else if (type === 'getMarker') {
             // Forward AR.js-style getMarker payload (emitted by the worker) to the app/event bus
             try { console.log('[Plugin] getMarker', payload); } catch (_) {}
             this.core?.eventBus?.emit('ar:getMarker', payload);
+
+            // ALSO translate this getMarker into a detection to drive markerFound/Updated
+            try {
+                const m = payload?.marker || {};
+                const id = m.idPatt ?? m.patternId ?? m.pattern_id ?? null;
+
+                // Matrix normalization
+                let poseArray = null;
+                if (Array.isArray(payload?.matrix)) {
+                    poseArray = payload.matrix.slice(0, 16);
+                } else if (payload?.matrix && typeof payload.matrix.length === 'number') {
+                    poseArray = Array.from(payload.matrix).slice(0, 16);
+                }
+
+                // Corners/vertex normalization (optional)
+                let corners = [];
+                const v = m.vertex;
+                if (Array.isArray(v)) {
+                    // vertex may be [x0,y0,x1,y1,...]
+                    for (let i = 0; i + 1 < v.length; i += 2) {
+                        corners.push([v[i], v[i + 1]]);
+                    }
+                }
+
+                const confidence = m.cfPatt ?? m.confidence ?? 0;
+
+                if (id != null && poseArray && poseArray.length === 16) {
+                    this._applyDetections([{
+                        id,
+                        confidence,
+                        poseMatrix: poseArray,
+                        corners
+                    }]);
+                }
+            } catch (e) {
+                // ignore conversion errors; raw getMarker still forwarded
+            }
         } else if (type === 'loadMarkerResult') {
             console.log('[Plugin] Received loadMarkerResult:', payload);
             const { requestId, ok, error, markerId, size } = payload || {};
-            
+
             if (requestId !== undefined) {
                 const pending = this._pendingMarkerLoads.get(requestId);
                 if (pending) {
@@ -279,13 +329,13 @@ export class ArtoolkitPlugin {
         if (!this._worker) {
             throw new Error('Worker not available. Ensure plugin is enabled and worker is running.');
         }
-        
+
         console.log(`[Plugin] Loading marker: ${patternUrl} with size ${size}`);
-        
+
         return new Promise((resolve, reject) => {
             const requestId = this._nextLoadRequestId++;
             this._pendingMarkerLoads.set(requestId, { resolve, reject });
-            
+
             // Send loadMarker message to worker
             try {
                 this._worker.postMessage({
@@ -296,7 +346,7 @@ export class ArtoolkitPlugin {
                 this._pendingMarkerLoads.delete(requestId);
                 reject(new Error(`Failed to send loadMarker message: ${err.message}`));
             }
-            
+
             // Set a timeout to prevent hanging promises
             setTimeout(() => {
                 if (this._pendingMarkerLoads.has(requestId)) {
