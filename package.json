@@ -30,6 +30,7 @@
   "author": "AR.js contributors",
   "license": "MIT",
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.6",
     "eslint": "^9.39.0",
     "husky": "^9.1.7",
     "jsdom": "^27.1.0",
