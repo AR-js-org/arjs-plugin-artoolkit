@@ -1,9 +1,6 @@
 // Cross-platform worker integrating ARToolKit in browser Workers.
 // - Browser: processes ImageBitmap → OffscreenCanvas → ARToolKit.process(canvas)
-// - Node: keeps stub behavior if needed
-let isNodeWorker = false;
-let parent = null;
-
+// Note: Node path removed for now to keep browser worker startup robust.
 let arController = null;
 let arControllerInitialized = false;
 let getMarkerForwarderAttached = false;
@@ -33,27 +30,16 @@ let INIT_OPTS = {
     minConfidence: null
 };
 
-if (typeof self === 'undefined') {
-    try {
-        const wt = await import('node:worker_threads').catch(() => null);
-        if (wt && wt.parentPort) {
-            isNodeWorker = true;
-            parent = wt.parentPort;
-        }
-    } catch {
-        isNodeWorker = false;
-        parent = null;
-    }
-}
+// Announce-ready guard
+let hasAnnouncedReady = false;
 
 function onMessage(fn) {
-    if (isNodeWorker) parent.on('message', (msg) => fn(msg));
-    else self.addEventListener('message', (ev) => fn(ev.data));
+    // Browser worker path
+    self.addEventListener('message', (ev) => fn(ev.data));
 }
 
 function sendMessage(msg) {
-    if (isNodeWorker) parent.postMessage(msg);
-    else self.postMessage(msg);
+    self.postMessage(msg);
 }
 
 // Serialize AR.js-style getMarker event into a transferable payload
@@ -149,6 +135,15 @@ async function initArtoolkit(width = 640, height = 480) {
                 return await import('@ar-js-org/artoolkit5-js');
             })();
 
+            // Safely extract exports (supports both named and default exports)
+            const ARController =
+                jsartoolkit.ARController ?? jsartoolkit.default?.ARController;
+            const ARToolkit =
+                jsartoolkit.ARToolkit ?? jsartoolkit.default?.ARToolkit;
+
+            if (!ARController) {
+                throw new Error('ARController export not found in ARToolKit module');
+            }
 
             // Read the constant if available; else keep default 0
             if (ARToolkit && typeof ARToolkit.PATTERN_MARKER === 'number') {
@@ -169,7 +164,7 @@ async function initArtoolkit(width = 640, height = 480) {
                 || 'https://raw.githack.com/AR-js-org/AR.js/master/data/data/camera_para.dat';
 
             console.log('[Worker] ARToolKit init', { width, height, camUrl, minConfidence: MIN_CONFIDENCE, patternType: PATTERN_MARKER_TYPE });
-            arController = await ARToolkit.ARController.initWithDimensions(width, height, camUrl, {});
+            arController = await ARController.initWithDimensions(width, height, camUrl, {});
             arControllerInitialized = !!arController;
             console.log('[Worker] ARToolKit initialized:', arControllerInitialized);
 
@@ -234,7 +229,10 @@ onMessage(async (ev) => {
                     MIN_CONFIDENCE = payload.minConfidence;
                 }
             }
-            sendMessage({ type: 'ready' });
+            if (!hasAnnouncedReady) {
+                sendMessage({ type: 'ready' });
+                hasAnnouncedReady = true;
+            }
             return;
         }
 
@@ -264,7 +262,7 @@ onMessage(async (ev) => {
 
         if (type === 'processFrame') {
             const { imageBitmap, width, height } = payload || {};
-            if (!isNodeWorker && imageBitmap) {
+            if (imageBitmap) {
                 try {
                     const w = width || imageBitmap.width || 640;
                     const h = height || imageBitmap.height || 480;
@@ -299,6 +297,7 @@ onMessage(async (ev) => {
                 return;
             }
 
+            // Non-ImageBitmap path: noop
             await new Promise((r) => setTimeout(r, 5));
             return;
         }
@@ -306,3 +305,11 @@ onMessage(async (ev) => {
         sendMessage({ type: 'error', payload: { message: err?.message || String(err) } });
     }
 });
+
+// Announce ready right after load, in case 'init' is delayed
+try {
+    if (!hasAnnouncedReady) {
+        sendMessage({ type: 'ready' });
+        hasAnnouncedReady = true;
+    }
+} catch {}
