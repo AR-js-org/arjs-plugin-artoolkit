@@ -2,11 +2,20 @@
   "name": "@ar-js-org/arjs-plugin-artoolkit",
   "version": "0.1.0",
   "description": "ARToolKit detection plugin for AR.js core (ECS plugin)",
-  "main": "dist/index.js",
-  "module": "src/index.js",
   "type": "module",
+  "main": "dist/arjs-plugin-artoolkit.esm.js",
+  "module": "dist/arjs-plugin-artoolkit.esm.js",
+  "exports": {
+    ".": {
+      "import": "./dist/arjs-plugin-artoolkit.esm.js",
+      "require": "./dist/arjs-plugin-artoolkit.esm.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "echo \"build step (none yet)\"",
+    "build": "vite build",
     "test": "vitest",
     "lint": "eslint . --ext .js",
     "prepare": "husky install"
@@ -20,9 +29,10 @@
   "author": "AR.js contributors",
   "license": "MIT",
   "devDependencies": {
-    "eslint": "^9.39.0",
+    "eslint": "^9.39.1",
     "husky": "^9.1.7",
-    "vitest": "^4.0.6"
+    "vitest": "^4.0.6",
+    "vite": "^7.1.12"
   },
   "dependencies": {
     "@ar-js-org/artoolkit5-js": "^0.3.2"

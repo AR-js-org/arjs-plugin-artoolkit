@@ -31,8 +31,9 @@
 
 <video id="video" autoplay playsinline></video>
 
+<!-- Only showing the <script type="module"> block; keep the rest unchanged -->
 <script type="module">
-    import { ArtoolkitPlugin } from '../../src/plugin.js';
+    import { ArtoolkitPlugin } from '../../dist/arjs-plugin-artoolkit.es.js';
 
     const statusEl = document.getElementById('status');
     const logEl = document.getElementById('log');
@@ -56,7 +57,6 @@
         if (type === 'error') statusEl.classList.add('error');
     }
 
-    // Minimal eventBus / core used by the plugin
     const eventBus = {
         _h: new Map(),
         on(e, h) { if (!this._h.has(e)) this._h.set(e, []); this._h.get(e).push(h); },
@@ -69,46 +69,43 @@
 
     async function start() {
         try {
-            log('Creating ArtoolkitPlugin instance...');
-            plugin = new ArtoolkitPlugin({ worker: true,
-                // ESM bundle path served by your dev server
-                artoolkitModuleUrl: '../../node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
-                cameraParametersUrl: "../../examples/simple-marker/data/camera_para.dat"
+            log('Creating ArtoolkitPlugin instance (dist build)…');
+            plugin = new ArtoolkitPlugin({
+                worker: true,
+                cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat',
+                // minConfidence: 0.6,
             });
             await plugin.init(core);
             await plugin.enable();
 
-            // wire event handlers
             eventBus.on('ar:workerReady', () => {
                 log('Worker ready');
                 setStatus('Worker ready. Start camera and then load marker.', 'success');
                 loadMarkerBtn.disabled = false;
             });
 
-            eventBus.on('ar:markerFound', d => log(`markerFound: ${JSON.stringify(d)}`));
-            eventBus.on('ar:markerUpdated', d => log(`markerUpdated: ${JSON.stringify(d)}`));
-            eventBus.on('ar:markerLost', d => log(`markerLost: ${JSON.stringify(d)}`));
             eventBus.on('ar:workerError', e => {
                 log(`workerError: ${JSON.stringify(e)}`);
                 setStatus('Worker error (see console)', 'error');
             });
-            eventBus.on('ar:getMarker', (e) => console.log('[example] ar:getMarker', e));
 
-            // Also log detectionResult from plugin console.log (plugin logs detectionResult)
-            setStatus('Plugin initialized. Waiting for worker...', 'normal');
+            eventBus.on('ar:getMarker', (e) => console.log('[example] ar:getMarker', e));
+            eventBus.on('ar:markerFound', d => log(`markerFound: ${JSON.stringify(d)}`));
+            eventBus.on('ar:markerUpdated', d => log(`markerUpdated: ${JSON.stringify(d)}`));
+            eventBus.on('ar:markerLost', d => log(`markerLost: ${JSON.stringify(d)}`));
+
+            setStatus('Plugin initialized. Waiting for worker…', 'normal');
         } catch (err) {
             log('Init error: ' + (err && err.message ? err.message : err));
             setStatus('Initialization error', 'error');
         }
     }
 
-    // Start camera when user clicks (to ensure user gesture)
     startCamBtn.addEventListener('click', async () => {
         try {
             startCamBtn.disabled = true;
-            log('Starting camera...');
+            log('Starting camera…');
             video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            // emit engine:update frames using createImageBitmap
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             let id = 0;
@@ -119,8 +116,7 @@
                 canvas.height = video.videoHeight;
                 ctx.drawImage(video, 0, 0);
                 const imageBitmap = await createImageBitmap(canvas);
-                // emit engine:update; plugin will transfer the ImageBitmap to the worker
-                eventBus.emit('engine:update', { id: ++id, imageBitmap, width: canvas.width, height: canvas.height });
+                core.eventBus.emit('engine:update', { id: ++id, imageBitmap, width: canvas.width, height: canvas.height });
                 requestAnimationFrame(tick);
             }
             requestAnimationFrame(tick);
@@ -133,13 +129,11 @@
         }
     });
 
-    // Load marker button uses plugin.loadMarker(...)
     loadMarkerBtn.addEventListener('click', async () => {
         if (!plugin) return log('Plugin not ready');
         loadMarkerBtn.disabled = true;
-        setStatus('Loading marker...', 'normal');
+        setStatus('Loading marker…', 'normal');
         try {
-            // Use absolute/site-root-relative URL so worker can fetch it.
             const patternUrl = '/examples/simple-marker/data/patt.hiro';
             log(`Requesting loadMarker for ${patternUrl}`);
             const res = await plugin.loadMarker(patternUrl, 1);
@@ -153,7 +147,6 @@
         }
     });
 
-    // initialize plugin but don't start camera automatically
     start();
 </script>
 </body>
