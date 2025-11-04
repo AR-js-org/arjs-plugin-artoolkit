@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+    // Ensure asset URLs are relative to the built module (not absolute at site root)
+    base: './',
     build: {
         lib: {
             entry: 'src/index.js',
@@ -10,14 +12,9 @@ export default defineConfig({
         },
         rollupOptions: {
             output: {
-                // Do NOT override entryFileNames so Vite uses lib.fileName for the entry
-                // Worker and other assets will still be emitted under assets/
-                assetFileNames: (assetInfo) => {
-                    if (assetInfo.name && assetInfo.name.includes('worker')) {
-                        return 'assets/[name]-[hash][extname]';
-                    }
-                    return 'assets/[name]-[hash][extname]';
-                },
+                // Keep assets under assets/; relative path is enforced by base: './'
+                assetFileNames: 'assets/[name]-[hash][extname]',
+                // Let Vite/rollup choose relative paths tied to the lib entry; no need to force chunks dirs
             },
         },
         sourcemap: true,
