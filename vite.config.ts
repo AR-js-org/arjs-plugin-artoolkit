@@ -8,7 +8,7 @@ export default defineConfig({
             entry: 'src/index.js',
             name: 'ARjsPluginARtoolkit',
             fileName: (format) => `arjs-plugin-artoolkit.${format}.js`,
-            formats: ['es'], // ESM-only build
+            formats: ['esm'], // ESM-only build
         },
         rollupOptions: {
             output: {

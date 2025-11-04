@@ -4,9 +4,8 @@ ARToolKit marker detection plugin for AR.js core with WebAssembly support.
 
 ## Features
 
-- Web Worker-based detection — marker detection runs off the main thread
+- Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
 - ImageBitmap support — zero-copy frame transfer (browser)
-- Cross-platform — browser Workers and Node.js worker_threads (stub path)
 - ARToolKit integration — square pattern markers
 - Event-driven API — marker found/updated/lost + raw getMarker forwarding
 - Filtering — only forwards PATTERN_MARKER events above a minimum confidence
@@ -17,26 +16,53 @@ ARToolKit marker detection plugin for AR.js core with WebAssembly support.
 npm install @ar-js-org/arjs-plugin-artoolkit
 ```
 
-## Configuration (module + assets)
+## Using the ESM build (recommended)
 
-To ensure the Worker can import ARToolKit in the browser, pass an explicit ESM URL (recommended):
+When you import the built ESM bundle from `dist/`, the worker and ARToolKit are already bundled and referenced correctly. You do NOT need to pass `artoolkitModuleUrl`.
+
+Example:
+
+```html
+<script type="module">
+  import { ArtoolkitPlugin } from '/dist/arjs-plugin-artoolkit.esm.js';
+
+  const engine = { eventBus: /* your event bus */ };
+
+  const plugin = new ArtoolkitPlugin({
+    worker: true,
+    cameraParametersUrl: '/path/to/camera_para.dat',
+    minConfidence: 0.6
+  });
+
+  await plugin.init(engine);
+  await plugin.enable();
+</script>
+```
+
+Serving notes:
+- Serve from a web server so `/dist` assets resolve. The build is configured with `base: './'`, so the worker asset is referenced relative to the ESM file (e.g., `/dist/assets/worker-*.js`).
+- In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative).
+
+## Using source (development mode)
+
+If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case you should provide `artoolkitModuleUrl` or ensure your dev server can resolve `@ar-js-org/artoolkit5-js`.
 
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // explicit ESM
-  cameraParametersUrl: '/path/to/camera_para.dat',                                // optional override
-  wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/',                    // optional; if your build needs it
-  minConfidence: 0.6                                                              // forward only confident detections
+  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // provide when using src/
+  cameraParametersUrl: '/path/to/camera_para.dat',
+  wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/', // optional; if your build requires it
+  minConfidence: 0.6
 });
 ```
 
-CDN fallback (if you don’t serve node_modules):
-- Set `artoolkitModuleUrl` to a CDN ESM endpoint, e.g. a jsDelivr/UNPKG URL for the package’s ESM bundle.
+CDN fallback (for source/dev):
+- Set `artoolkitModuleUrl` to a CDN ESM endpoint (e.g., jsDelivr/UNPKG) for `@ar-js-org/artoolkit5-js`.
 
 Notes:
 - The previous “loader.js” and manual WASM placement flow is no longer used.
-- If your ARToolKit build fetches auxiliary assets (WASM, data), set `wasmBaseUrl` accordingly.
+- In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
 
 ## Usage
 
@@ -49,7 +75,7 @@ const plugin = new ArtoolkitPlugin({
   worker: true,
   lostThreshold: 5,       // frames before a marker is considered lost
   frameDurationMs: 100,   // expected ms per frame (affects lost timing)
-  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
+  // artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // Only for src/dev
   cameraParametersUrl: '/data/camera_para.dat',
   minConfidence: 0.6
 });
@@ -114,7 +140,7 @@ const { markerId, size } = await plugin.loadMarker('/examples/simple-marker/data
 
 A complete webcam-based example is available under `examples/simple-marker/`.
 
-Serve from the repository root so that ES modules and node_modules paths resolve:
+Serve from the repository root so that `dist/` and example paths resolve:
 
 ```bash
 # From repository root
@@ -142,9 +168,9 @@ The example demonstrates:
   lostThreshold?: number;      // Frames before 'lost' (default: 5)
   frameDurationMs?: number;    // ms per frame (default: 200)
   sweepIntervalMs?: number;    // Lost-sweep interval (default: 100)
-  artoolkitModuleUrl?: string; // ESM URL for ARToolKit (recommended)
+  artoolkitModuleUrl?: string; // Only needed when using source/dev; NOT needed for dist build
   cameraParametersUrl?: string;// Camera params file URL
-  wasmBaseUrl?: string;        // Base URL for ARToolKit assets (if required)
+  wasmBaseUrl?: string;        // Base URL for ARToolKit assets (if required by your build)
   minConfidence?: number;      // Minimum confidence to forward getMarker (default: 0.6)
 }
 ```
@@ -160,7 +186,10 @@ The example demonstrates:
 
 ## Troubleshooting
 
-- “Failed to resolve module specifier” in the Worker:
+- Worker asset 404:
+    - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.esm.js` and that `/dist/assets/worker-*.js` is served.
+    - The build uses `base: './'`, so worker URLs are relative to the ESM file location.
+- “Failed to resolve module specifier” in the Worker (source/dev only):
     - Provide `artoolkitModuleUrl` or serve `/node_modules` from your dev server
 - Worker not starting:
     - Serve via HTTP/HTTPS; ensure ES modules and Workers are supported

@@ -15,8 +15,8 @@ npm install
 ### 2. Serve the Example
 
 You must serve from the repository root so that:
-- ES modules resolve (../../src/plugin.js)
-- The worker module URL (../../node_modules/...) is reachable
+- The built ESM (`/dist/arjs-plugin-artoolkit.esm.js`) and worker asset (`/dist/assets/worker-*.js`) resolve
+- Example paths under `/examples/simple-marker/` resolve
 
 You can use any static file server. Examples:
 
@@ -56,7 +56,18 @@ If you're using VS Code with the Live Server extension:
 
 ## Module resolution
 
-The example config (in `index.html`) passes explicit URLs so the worker can import ARToolKit and camera params:
+When importing the built ESM from `dist/`, ARToolKit is bundled and no extra configuration is required:
+
+```js
+import { ArtoolkitPlugin } from '/dist/arjs-plugin-artoolkit.esm.js';
+
+const plugin = new ArtoolkitPlugin({
+  worker: true,
+  cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat'
+});
+```
+
+If you develop against `src/` instead, provide an explicit ARToolKit module URL:
 
 ```js
 const plugin = new ArtoolkitPlugin({
@@ -65,10 +76,6 @@ const plugin = new ArtoolkitPlugin({
   cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat'
 });
 ```
-
-If your server can’t serve `/node_modules`, either:
-- Adjust `artoolkitModuleUrl` to a path your server exposes, or
-- Use a CDN ESM URL as a fallback (see project README for details)
 
 ## What’s Happening
 
@@ -93,10 +100,9 @@ The `data/patt.hiro` file is a standard ARToolKit pattern. You can replace it wi
 Key parts of the example:
 
 ```javascript
-// Create plugin instance with worker enabled and explicit module/params URLs
+// Create plugin instance with worker enabled (no artoolkitModuleUrl needed with dist)
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
   cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat'
 });
 
@@ -113,9 +119,7 @@ console.log(`Marker loaded with ID: ${result.markerId}`);
 
 - Worker not loading?
     - Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`)
-    - Check console for module resolution/CORS errors
-- Module import errors?
-    - Make sure `/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js` is reachable, or use a CDN URL
+    - Confirm `/dist/arjs-plugin-artoolkit.esm.js` and `/dist/assets/worker-*.js` are reachable
 - Marker not loading?
     - Verify the pattern file path is correct and accessible
     - Ensure the worker is ready before calling `loadMarker()`
