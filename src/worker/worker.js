@@ -136,10 +136,10 @@ async function initArtoolkit(width = 640, height = 480) {
             })();
 
             // Safely extract exports (supports both named and default exports)
-            /*const ARController =
+            const ARController =
                 jsartoolkit.ARController ?? jsartoolkit.default?.ARController;
             const ARToolkit =
-                jsartoolkit.ARToolkit ?? jsartoolkit.default?.ARToolkit;*/
+                jsartoolkit.ARToolkit ?? jsartoolkit.default?.ARToolkit;
 
             if (!ARController) {
                 throw new Error('ARController export not found in ARToolKit module');
