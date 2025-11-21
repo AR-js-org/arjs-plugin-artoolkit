@@ -19,7 +19,9 @@
     "test": "vitest",
     "coverage": "vitest run --coverage",
     "lint": "eslint . --ext .js",
-    "prepare": "husky"
+    "prepare": "husky",
+    "smoke:node": "node dev/smoke-node.js",
+    "smoke:browser": "npx http-server -p 8080"
   },
   "keywords": [
     "arjs",
