@@ -1,4 +1,4 @@
-# @ar-js-org/arjs-plugin-artoolkit
+# arjs-plugin-artoolkit
 
 ARToolKit marker detection plugin for AR.js core with WebAssembly support.
 
@@ -10,9 +10,24 @@ ARToolKit marker detection plugin for AR.js core with WebAssembly support.
 - Event-driven API — marker found/updated/lost + raw getMarker forwarding
 - Filtering — only forwards PATTERN_MARKER events above a minimum confidence
 
+## Version
+
+The plugin exposes its build-time version both as a constant and on each instance:
+
+```js
+import { ArtoolkitPlugin, ARTOOLKIT_PLUGIN_VERSION } from '@ar-js-org/arjs-plugin-artoolkit';
+
+console.log('Build version:', ARTOOLKIT_PLUGIN_VERSION); // e.g. 0.1.0 or 'unknown'
+const plugin = new ArtoolkitPlugin();
+console.log('Instance version:', plugin.version);
+```
+
+If the build define is missing (e.g. raw source / some test runners), the version falls back to `'unknown'`.
+
 ## Installation
 
 ```bash
+// Attention!! not yet published!
 npm install @ar-js-org/arjs-plugin-artoolkit
 ```
 
@@ -24,7 +39,7 @@ Example:
 
 ```html
 <script type="module">
-  import { ArtoolkitPlugin } from '/dist/arjs-plugin-artoolkit.esm.js';
+  import { ArtoolkitPlugin } from '/dist/arjs-plugin-artoolkit.es.js';
 
   const engine = { eventBus: /* your event bus */ };
 
@@ -36,6 +51,7 @@ Example:
 
   await plugin.init(engine);
   await plugin.enable();
+  console.log('Plugin version:', plugin.version);
 </script>
 ```
 
@@ -55,6 +71,7 @@ const plugin = new ArtoolkitPlugin({
   wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/', // optional; if your build requires it
   minConfidence: 0.6
 });
+console.log('Plugin version:', plugin.version);
 ```
 
 CDN fallback (for source/dev):
@@ -65,6 +82,32 @@ Notes:
 - In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
 
 ## Usage
+
+### Quick Start (copy-paste)
+
+```js
+import { ArtoolkitPlugin } from '@ar-js-org/arjs-plugin-artoolkit';
+
+// Minimal event bus stub
+const eventBus = {
+  _h: new Map(),
+  on(e,h){ if(!this._h.has(e)) this._h.set(e,[]); this._h.get(e).push(h); },
+  emit(e,p){ (this._h.get(e)||[]).forEach(fn=>{ try{ fn(p); } catch(err){ console.error(err); } }); }
+};
+const engine = { eventBus };
+
+const plugin = new ArtoolkitPlugin({ worker: true, minConfidence: 0.6 });
+await plugin.init(engine);
+await plugin.enable();
+console.log('Version:', plugin.version);
+
+// Load a marker (size is world units)
+await plugin.loadMarker('/examples/simple-marker/data/patt.hiro', 1);
+
+eventBus.on('ar:markerFound', m => console.log('FOUND', m.id));
+eventBus.on('ar:markerUpdated', m => console.log('UPDATED', m.id));
+eventBus.on('ar:markerLost', m => console.log('LOST', m.id));
+```
 
 ### Register and enable
 
@@ -166,11 +209,11 @@ The example demonstrates:
 {
   worker?: boolean;            // Enable worker (default: true)
   lostThreshold?: number;      // Frames before 'lost' (default: 5)
-  frameDurationMs?: number;    // ms per frame (default: 200)
+  frameDurationMs?: number;    // ms per frame used with lostThreshold (default: 200)
   sweepIntervalMs?: number;    // Lost-sweep interval (default: 100)
-  artoolkitModuleUrl?: string; // Only needed when using source/dev; NOT needed for dist build
-  cameraParametersUrl?: string;// Camera params file URL
-  wasmBaseUrl?: string;        // Base URL for ARToolKit assets (if required by your build)
+  artoolkitModuleUrl?: string; // Only needed when using source/dev; not needed for dist build
+  cameraParametersUrl?: string;// Camera params file URL (required unless you rely on a remote default)
+  wasmBaseUrl?: string;        // Base URL for ARToolKit assets (optional)
   minConfidence?: number;      // Minimum confidence to forward getMarker (default: 0.6)
 }
 ```
@@ -187,7 +230,7 @@ The example demonstrates:
 ## Troubleshooting
 
 - Worker asset 404:
-    - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.esm.js` and that `/dist/assets/worker-*.js` is served.
+    - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.es.js` and that `/dist/assets/worker-*.js` is served.
     - The build uses `base: './'`, so worker URLs are relative to the ESM file location.
 - “Failed to resolve module specifier” in the Worker (source/dev only):
     - Provide `artoolkitModuleUrl` or serve `/node_modules` from your dev server
@@ -196,3 +239,4 @@ The example demonstrates:
 - No detections:
     - Confirm camera started, correct marker pattern, sufficient lighting
     - Adjust `minConfidence` to reduce/raise filtering
+  - Check `plugin.version` (if 'unknown', ensure build-time define is configured)
