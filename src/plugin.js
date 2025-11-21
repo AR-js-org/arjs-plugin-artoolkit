@@ -1,4 +1,14 @@
 // src/plugin.js
+
+// Version injected at build time by Vite define.
+// If the define is missing (e.g. in a non-Vite test harness), fallback to 'unknown'.
+const ARTOOLKIT_PLUGIN_VERSION =
+  typeof __ARTOOLKIT_PLUGIN_VERSION__ !== "undefined"
+    ? __ARTOOLKIT_PLUGIN_VERSION__
+    : "unknown";
+
+export { ARTOOLKIT_PLUGIN_VERSION };
+
 /**
  * ArtoolkitPlugin
  * - maintains plugin lifecycle (init, enable, disable, dispose)
@@ -42,11 +52,14 @@ export class ArtoolkitPlugin {
 
         // Track worker readiness (used by examples to avoid UI race)
         this.workerReady = false;
+
+        this.version = ARTOOLKIT_PLUGIN_VERSION;
     }
 
     async init(core) {
         this.core = core;
         // Nothing heavy here; defer worker setup to enable()
+        console.log(`[ArtoolkitPlugin] ${this.version} Initialized with core`, core);
         return this;
     }
 

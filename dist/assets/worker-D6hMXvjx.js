@@ -63,7 +63,7 @@ async function U(a = 640, t = 480) {
     }
   k = (async () => {
     try {
-      const r = await (async () => l.moduleUrl ? (console.log("[Worker] Loading artoolkit from moduleUrl:", l.moduleUrl), await import(l.moduleUrl)) : await import("./ARToolkit-pmDcsFY0.js").then(function(c) {
+      const r = await (async () => l.moduleUrl ? (console.log("[Worker] Loading artoolkit from moduleUrl:", l.moduleUrl), await import(l.moduleUrl)) : await import("./ARToolkit-Q5ek8CTR.js").then(function(c) {
         return c.A;
       }))(), o = r.ARController ?? r.default?.ARController, i = r.ARToolkit ?? r.default?.ARToolkit;
       if (!o)
@@ -161,4 +161,4 @@ try {
   A || (f({ type: "ready" }), A = !0);
 } catch {
 }
-//# sourceMappingURL=worker-NSCgfIFP.js.map
+//# sourceMappingURL=worker-D6hMXvjx.js.map
