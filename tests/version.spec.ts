@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ARTOOLKIT_PLUGIN_VERSION, ArtoolkitPlugin } from '../src/plugin.js';
 import { createEventBus } from './setupTests';
 
