@@ -8,7 +8,7 @@ export default defineConfig({
             entry: 'src/index.js',
             name: 'ARjsPluginARtoolkit',
             fileName: (format) => `arjs-plugin-artoolkit.${format}.js`,
-            formats: ['esm'], // ESM-only build
+            formats: ['es'], // ES module build ("esm" is not a valid LibraryFormats value)
         },
         rollupOptions: {
             output: {
@@ -22,5 +22,12 @@ export default defineConfig({
     },
     worker: {
         format: 'es',
+    },
+    // Inject the package version as a global constant for the plugin to log.
+    // Vite automatically populates process.env.npm_package_version.
+    define: {
+        __ARTOOLKIT_PLUGIN_VERSION__: JSON.stringify(
+            process.env.npm_package_version,
+        ),
     },
 });

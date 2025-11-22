@@ -18,7 +18,6 @@ function GQ(vA) {
   return vA && vA.__esModule && Object.prototype.hasOwnProperty.call(vA, "default") ? vA.default : vA;
 }
 var Fg = { exports: {} };
-/*! For license information please see ARToolkit.js.LICENSE.txt */
 var hQ = Fg.exports, rC;
 function rQ() {
   return rC || (rC = 1, (function(vA, _g) {
@@ -4240,4 +4239,4 @@ var eC = rQ(), eQ = /* @__PURE__ */ GQ(eC), RQ = /* @__PURE__ */ sQ({
 export {
   RQ as A
 };
-//# sourceMappingURL=ARToolkit-pmDcsFY0.js.map
+//# sourceMappingURL=ARToolkit-Q5ek8CTR.js.map

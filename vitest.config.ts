@@ -6,7 +6,6 @@ export default defineConfig({
         setupFiles: ['./tests/setupTests.ts'],
         coverage: {
             provider: 'v8',
-            all: true,
             include: ['src/**/*.js'],
             exclude: ['src/worker/**', 'src/index.js'],
             thresholds: {

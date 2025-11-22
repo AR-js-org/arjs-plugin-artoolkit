@@ -1,9 +1,10 @@
+const r = "0.1.0";
 class a {
   constructor(g = {}) {
-    this.options = g, this.core = null, this.enabled = !1, this._worker = null, this._onWorkerMessage = this._onWorkerMessage.bind(this), this._onEngineUpdate = this._onEngineUpdate.bind(this), this._markers = /* @__PURE__ */ new Map(), this.lostThreshold = g.lostThreshold ?? 5, this.frameDurationMs = g.frameDurationMs ?? 200, this.sweepIntervalMs = g.sweepIntervalMs ?? 100, this.workerEnabled = g.worker !== !1, this._pendingMarkerLoads = /* @__PURE__ */ new Map(), this._nextLoadRequestId = 0, this.workerReady = !1;
+    this.options = g, this.core = null, this.enabled = !1, this._worker = null, this._onWorkerMessage = this._onWorkerMessage.bind(this), this._onEngineUpdate = this._onEngineUpdate.bind(this), this._markers = /* @__PURE__ */ new Map(), this.lostThreshold = g.lostThreshold ?? 5, this.frameDurationMs = g.frameDurationMs ?? 200, this.sweepIntervalMs = g.sweepIntervalMs ?? 100, this.workerEnabled = g.worker !== !1, this._pendingMarkerLoads = /* @__PURE__ */ new Map(), this._nextLoadRequestId = 0, this.workerReady = !1, this.version = r;
   }
   async init(g) {
-    return this.core = g, this;
+    return this.core = g, console.log(`[ArtoolkitPlugin] ${this.version} Initialized with core`, g), this;
   }
   async enable() {
     if (!this.core) throw new Error("Plugin not initialized");
@@ -49,7 +50,7 @@ class a {
       if (typeof Worker < "u")
         this._worker = new Worker(new URL(
           /* @vite-ignore */
-          "" + new URL("assets/worker-NSCgfIFP.js", import.meta.url).href,
+          "" + new URL("assets/worker-D6hMXvjx.js", import.meta.url).href,
           import.meta.url
         ), { type: "module" });
       else {
@@ -116,12 +117,12 @@ class a {
         let s = [];
         const t = e.vertex;
         if (Array.isArray(t))
-          for (let b = 0; b + 1 < t.length; b += 2)
-            s.push([t[b], t[b + 1]]);
-        const d = e.cfPatt ?? e.confidence ?? 0;
+          for (let d = 0; d + 1 < t.length; d += 2)
+            s.push([t[d], t[d + 1]]);
+        const b = e.cfPatt ?? e.confidence ?? 0;
         c != null && l && l.length === 16 && this._applyDetections([{
           id: c,
-          confidence: d,
+          confidence: b,
           poseMatrix: l,
           corners: s
         }]);
@@ -131,8 +132,8 @@ class a {
       console.log("[Plugin] Received loadMarkerResult:", I);
       const { requestId: e, ok: c, error: l, markerId: s, size: t } = I || {};
       if (e !== void 0) {
-        const d = this._pendingMarkerLoads.get(e);
-        d && (this._pendingMarkerLoads.delete(e), c ? d.resolve({ markerId: s, size: t }) : d.reject(new Error(l || "Failed to load marker")));
+        const b = this._pendingMarkerLoads.get(e);
+        b && (this._pendingMarkerLoads.delete(e), c ? b.resolve({ markerId: s, size: t }) : b.reject(new Error(l || "Failed to load marker")));
       }
     } else A === "error" && (console.error("Artoolkit worker error", I), this.core?.eventBus?.emit("ar:workerError", I));
   }
@@ -172,7 +173,7 @@ class a {
     });
   }
 }
-function r(o) {
+function m(o) {
   const g = new Float32Array(16);
   for (let C = 0; C < 16; C++) g[C] = o[C];
   return g;
@@ -182,6 +183,6 @@ const i = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
 }, Symbol.toStringTag, { value: "Module" }));
 export {
   a as ArtoolkitPlugin,
-  r as convertModelViewToThreeMatrix
+  m as convertModelViewToThreeMatrix
 };
-//# sourceMappingURL=arjs-plugin-artoolkit.esm.js.map
+//# sourceMappingURL=arjs-plugin-artoolkit.es.js.map

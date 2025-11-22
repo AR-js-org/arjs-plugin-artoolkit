@@ -1,12 +1,64 @@
-// src/plugin.js
 /**
- * ArtoolkitPlugin
- * - maintains plugin lifecycle (init, enable, disable, dispose)
- * - optionally runs detection inside a Worker (src/worker/worker.js)
- * - subscribes to engine:update to send frames (ImageBitmap or frame metadata) to the worker
- * - emits ar:markerFound / ar:markerUpdated / ar:markerLost on the engine eventBus
- *
- * Works both in browsers (global Worker) and in Node (worker_threads.Worker).
+ * @fileoverview ARToolKit Plugin - Core implementation
+ * 
+ * Manages the lifecycle of marker-based AR tracking using ARToolKit.
+ * Supports web worker-based detection, marker state tracking, and event emission.
+ * Works in both browser (Web Worker) and Node.js (worker_threads) environments.
+ * 
+ * @module plugin
+ */
+
+/**
+ * Plugin version string, injected at build time by Vite's define feature.
+ * In development/test environments without the build define, defaults to 'unknown'.
+ * 
+ * @type {string}
+ * @constant
+ */
+const ARTOOLKIT_PLUGIN_VERSION =
+  typeof __ARTOOLKIT_PLUGIN_VERSION__ !== "undefined"
+    ? __ARTOOLKIT_PLUGIN_VERSION__
+    : "unknown";
+
+export { ARTOOLKIT_PLUGIN_VERSION };
+
+/**
+ * ARToolKit Plugin for marker-based augmented reality tracking.
+ * 
+ * This plugin integrates ARToolKit marker detection into AR.js, managing:
+ * - Plugin lifecycle (init, enable, disable, dispose)
+ * - Web Worker-based detection for off-main-thread processing
+ * - Frame processing via ImageBitmap transfer (zero-copy in browsers)
+ * - Marker state tracking and lost-marker detection
+ * - Event emission for marker lifecycle (found/updated/lost)
+ * 
+ * @class
+ * @param {Object} options - Configuration options
+ * @param {boolean} [options.worker=true] - Enable worker-based detection
+ * @param {number} [options.lostThreshold=5] - Frames before marking a marker as lost
+ * @param {number} [options.frameDurationMs=200] - Milliseconds per frame (for lost calculation)
+ * @param {number} [options.sweepIntervalMs=100] - Interval for running lost-marker sweep
+ * @param {string} [options.artoolkitModuleUrl] - Custom URL for ARToolKit module
+ * @param {string} [options.cameraParametersUrl] - Camera calibration parameters URL
+ * @param {string} [options.wasmBaseUrl] - Base URL for ARToolKit WASM files
+ * 
+ * @example
+ * const plugin = new ArtoolkitPlugin({
+ *   worker: true,
+ *   lostThreshold: 10,
+ *   cameraParametersUrl: '/path/to/camera_para.dat'
+ * });
+ * await plugin.init(engineCore);
+ * await plugin.enable();
+ * 
+ * @fires ar:markerFound - When a marker is first detected
+ * @fires ar:markerUpdated - When a tracked marker's pose updates
+ * @fires ar:markerLost - When a marker hasn't been seen for lostThreshold frames
+ * @fires ar:workerReady - When the detection worker is initialized
+ * @fires ar:workerError - When the worker encounters an error
+ * @fires ar:getMarker - Raw AR.js-style marker detection events
+ * 
+ * @note Works in both browser (Web Worker) and Node.js (worker_threads) environments
  */
 export class ArtoolkitPlugin {
     constructor(options = {}) {
@@ -42,14 +94,37 @@ export class ArtoolkitPlugin {
 
         // Track worker readiness (used by examples to avoid UI race)
         this.workerReady = false;
+
+        this.version = ARTOOLKIT_PLUGIN_VERSION;
     }
 
+    /**
+     * Initialize the plugin with the engine core.
+     * 
+     * Stores the core reference and prepares the plugin.
+     * Heavy initialization (worker setup) is deferred to enable().
+     * 
+     * @param {Object} core - Engine core with eventBus
+     * @param {Object} core.eventBus - Event bus for plugin communication
+     * @returns {Promise<ArtoolkitPlugin>} This plugin instance
+     */
     async init(core) {
         this.core = core;
         // Nothing heavy here; defer worker setup to enable()
+        console.log(`[ArtoolkitPlugin] ${this.version} Initialized with core`, core);
         return this;
     }
 
+    /**
+     * Enable the plugin and start marker detection.
+     * 
+     * - Subscribes to engine:update events for frame processing
+     * - Starts the detection worker (if workerEnabled)
+     * - Begins marker sweep interval for lost-marker detection
+     * 
+     * @returns {Promise<ArtoolkitPlugin>} This plugin instance
+     * @throws {Error} If plugin not initialized via init()
+     */
     async enable() {
         if (!this.core) throw new Error('Plugin not initialized');
         if (this.enabled) return this;
@@ -68,6 +143,15 @@ export class ArtoolkitPlugin {
         return this;
     }
 
+    /**
+     * Disable the plugin and stop marker detection.
+     * 
+     * - Unsubscribes from engine:update events
+     * - Stops and terminates the detection worker
+     * - Clears the marker sweep interval
+     * 
+     * @returns {Promise<ArtoolkitPlugin>} This plugin instance
+     */
     async disable() {
         if (!this.enabled) return this;
         this.enabled = false;
@@ -86,11 +170,34 @@ export class ArtoolkitPlugin {
         return this;
     }
 
+    /**
+     * Dispose of the plugin and clean up resources.
+     * 
+     * Alias for disable() - stops detection and terminates worker.
+     * 
+     * @returns {Promise<ArtoolkitPlugin>} This plugin instance
+     */
     dispose() {
         return this.disable();
     }
 
-    // Engine frame handler: forward frame info or ImageBitmap to the worker
+    /**
+     * Engine frame update handler - forwards frames to the worker for processing.
+     * 
+     * Receives frame data from the capture system and sends it to the detection worker.
+     * In browsers, uses transferable ImageBitmap for zero-copy performance.
+     * 
+     * @param {Object} frame - Frame data from capture system
+     * @param {number} frame.id - Frame identifier
+     * @param {number} frame.timestamp - Frame timestamp
+     * @param {ImageBitmap} [frame.imageBitmap] - Browser-only transferable image data
+     * @param {number} frame.width - Frame width in pixels
+     * @param {number} frame.height - Frame height in pixels
+     * @param {*} [frame.sourceRef] - Optional reference to source
+     * 
+     * @private
+     * @note After ImageBitmap transfer, the main thread's bitmap is neutered and cannot be reused
+     */
     _onEngineUpdate(frame) {
         // frame is expected to be an object provided by the capture system, e.g.:
         // { id: number, timestamp, imageBitmap?, width, height, sourceRef }
@@ -134,7 +241,25 @@ export class ArtoolkitPlugin {
         }
     }
 
-    // Worker lifecycle (cross-platform)
+    /**
+     * Start the detection worker (cross-platform).
+     * 
+     * Creates and initializes a Web Worker (browser) or worker_threads.Worker (Node.js).
+     * Attaches message handlers and sends initial configuration to the worker.
+     * 
+     * **Browser:** Uses `new Worker(new URL(...), { type: 'module' })`
+     * **Node.js:** Uses `worker_threads.Worker` with file path resolution
+     * 
+     * Sends init message with:
+     * - artoolkitModuleUrl: Custom ARToolKit module URL
+     * - cameraParametersUrl: Camera calibration parameters
+     * - wasmBaseUrl: Base URL for WASM files
+     * 
+     * Includes watchdog timer to resend init if worker doesn't respond within 500ms.
+     * 
+     * @private
+     * @returns {Promise<void>}
+     */
     async _startWorker() {
         if (this._worker) return;
 
@@ -179,6 +304,14 @@ export class ArtoolkitPlugin {
         }
     }
 
+    /**
+     * Stop and terminate the detection worker.
+     * 
+     * Removes message event handlers and terminates the worker thread.
+     * Works for both browser Workers and Node.js worker_threads.
+     * 
+     * @private
+     */
     _stopWorker() {
         if (!this._worker) return;
 
@@ -201,7 +334,24 @@ export class ArtoolkitPlugin {
         this._worker = null;
     }
 
-    // NEW: Normalize detection updates and emit markerFound/Updated
+    /**
+     * Apply detection results and emit appropriate marker events.
+     * 
+     * Normalizes detection data and determines whether to emit markerFound or markerUpdated.
+     * Updates internal marker tracking state (lastSeen, visible, lostCount).
+     * 
+     * **Event Logic:**
+     * - First detection or previously invisible → emits `ar:markerFound`
+     * - Already visible → emits `ar:markerUpdated`
+     * 
+     * @param {Array<Object>} detections - Array of detection results from worker
+     * @param {number} detections[].id - Marker ID
+     * @param {Array<number>} detections[].poseMatrix - 16-element pose matrix
+     * @param {number} [detections[].confidence=0] - Detection confidence (0-1)
+     * @param {Array<Array<number>>} [detections[].corners=[]] - Marker corner coordinates
+     * 
+     * @private
+     */
     _applyDetections(detections) {
         if (!detections || !Array.isArray(detections)) return;
         for (const d of detections) {
@@ -226,6 +376,27 @@ export class ArtoolkitPlugin {
         }
     }
 
+    /**
+     * Handle messages from the detection worker.
+     * 
+     * Processes different message types and routes them appropriately:
+     * - `ready`: Worker initialized, sets workerReady flag
+     * - `detectionResult`: Normalized detection data, applies via _applyDetections
+     * - `getMarker`: AR.js-style marker event, forwards to event bus and converts to detection
+     * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
+     * - `error`: Worker error, emits ar:workerError event
+     * 
+     * **Cross-platform handling:**
+     * - Browser workers wrap messages in `event.data`
+     * - Node.js worker_threads pass raw payload
+     * 
+     * @param {Object|MessageEvent} ev - Message event from worker
+     * @param {Object} [ev.data] - Message data (browser workers)
+     * @param {string} ev.data.type - Message type
+     * @param {*} ev.data.payload - Message payload
+     * 
+     * @private
+     */
     _onWorkerMessage(ev) {
         // worker_threads messages arrive as the raw payload; browser workers wrap in event.data
         const data = ev && ev.data !== undefined ? ev.data : ev;
@@ -301,7 +472,14 @@ export class ArtoolkitPlugin {
         }
     }
 
-    // sweep markers and emit lost events for markers not seen recently
+    /**
+     * Internal sweep to detect and emit lost markers.
+     * 
+     * Checks all tracked markers against the lost threshold.
+     * Markers not seen recently are removed and ar:markerLost is emitted.
+     * 
+     * @private
+     */
     _sweepMarkers() {
         const now = Date.now();
         const lostThresholdMs = this.lostThreshold * this.frameDurationMs;
@@ -314,7 +492,18 @@ export class ArtoolkitPlugin {
         }
     }
 
-    // public helper to get marker state
+    /**
+     * Get the current tracking state of a marker.
+     * 
+     * @param {number} markerId - Marker ID to query
+     * @returns {Object|null} Marker state object with lastSeen, visible, lostCount, or null if not tracked
+     * 
+     * @example
+     * const state = plugin.getMarkerState(42);
+     * if (state && state.visible) {
+     *   console.log('Marker 42 last seen:', state.lastSeen);
+     * }
+     */
     getMarkerState(markerId) {
         return this._markers.get(markerId) || null;
     }

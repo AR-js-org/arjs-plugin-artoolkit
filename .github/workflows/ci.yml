@@ -20,5 +20,7 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Smoke node test
+        run: npm run smoke:node
       - name: Run tests
         run: npm test

@@ -1,6 +1,35 @@
-// Cross-platform worker integrating ARToolKit in browser Workers.
-// - Browser: processes ImageBitmap → OffscreenCanvas → ARToolKit.process(canvas)
-// Note: Node path removed for now to keep browser worker startup robust.
+/**
+ * @fileoverview ARToolKit Detection Worker
+ * 
+ * Cross-platform web worker for marker detection using ARToolKit.
+ * Runs marker tracking off the main thread for optimal performance.
+ * 
+ * **Browser Path:**
+ * - Receives ImageBitmap via transferable objects (zero-copy)
+ * - Draws to OffscreenCanvas for processing
+ * - Runs ARToolKit.process() on canvas/ImageData
+ * - Forwards filtered getMarker events to main thread
+ * 
+ * **Features:**
+ * - Lazy initialization with exponential backoff on failures
+ * - Marker loading and deduplication by pattern URL
+ * - Confidence-based filtering (configurable via init)
+ * - Selective event forwarding for tracked pattern IDs only
+ * 
+ * **Message Protocol:**
+ * - `init`: Configure worker (moduleUrl, cameraParametersUrl, wasmBaseUrl, minConfidence)
+ * - `loadMarker`: Load a pattern marker by URL
+ * - `processFrame`: Process ImageBitmap for marker detection
+ * 
+ * **Emitted Events:**
+ * - `ready`: Worker initialized and ready
+ * - `getMarker`: Filtered marker detection event
+ * - `loadMarkerResult`: Result of loadMarker request
+ * - `error`: Error occurred during processing
+ * 
+ * @module worker/worker
+ */
+
 let arController = null;
 let arControllerInitialized = false;
 let getMarkerForwarderAttached = false;
@@ -33,16 +62,42 @@ let INIT_OPTS = {
 // Announce-ready guard
 let hasAnnouncedReady = false;
 
+/**
+ * Cross-platform message listener registration.
+ * 
+ * Attaches a message handler for the worker's message events.
+ * Normalizes browser worker message events (extracts ev.data).
+ * 
+ * @param {Function} fn - Handler function receiving message data
+ * @private
+ */
 function onMessage(fn) {
     // Browser worker path
     self.addEventListener('message', (ev) => fn(ev.data));
 }
 
+/**
+ * Send a message to the main thread.
+ * 
+ * @param {Object} msg - Message object to send
+ * @param {string} msg.type - Message type identifier
+ * @param {*} [msg.payload] - Optional message payload
+ * @private
+ */
 function sendMessage(msg) {
     self.postMessage(msg);
 }
 
-// Serialize AR.js-style getMarker event into a transferable payload
+/**
+ * Serialize AR.js-style getMarker event into a transferable payload.
+ * 
+ * Converts the marker event into a plain object that can be sent via postMessage,
+ * extracting matrix, marker properties, and vertex data.
+ * 
+ * @param {Object} ev - Raw getMarker event from ARToolKit
+ * @returns {Object} Serialized payload with type, matrix, and marker properties
+ * @private
+ */
 function serializeGetMarkerEvent(ev) {
     try {
         const data = ev?.data || {};
@@ -69,6 +124,19 @@ function serializeGetMarkerEvent(ev) {
     }
 }
 
+/**
+ * Filter function to determine if a marker event should be forwarded to main thread.
+ * 
+ * Applies multiple filters:
+ * - Type must match PATTERN_MARKER
+ * - Confidence must meet MIN_CONFIDENCE threshold
+ * - Matrix must exist with 16+ values
+ * - If tracking specific IDs, marker ID must be in trackedPatternIds
+ * 
+ * @param {Object} event - Marker event from ARToolKit
+ * @returns {boolean} True if event should be forwarded
+ * @private
+ */
 function shouldForwardGetMarker(event) {
     const data = event?.data || {};
     const type = data.type;
@@ -93,6 +161,16 @@ function shouldForwardGetMarker(event) {
     return true;
 }
 
+/**
+ * Attach a filtered event forwarder to ARController's getMarker events.
+ * 
+ * Sets up a listener that filters marker events based on confidence, type,
+ * and tracked pattern IDs before forwarding to the main thread.
+ * 
+ * Only attaches once (guarded by getMarkerForwarderAttached flag).
+ * 
+ * @private
+ */
 function attachGetMarkerForwarder() {
     if (!arController || typeof arController.addEventListener !== 'function' || getMarkerForwarderAttached) return;
     arController.addEventListener('getMarker', (event) => {
@@ -104,7 +182,21 @@ function attachGetMarkerForwarder() {
     getMarkerForwarderAttached = true;
 }
 
-// Guarded init with backoff
+/**
+ * Initialize ARToolKit with exponential backoff on failures.
+ * 
+ * Loads the ARToolKit module, configures it with init options,
+ * creates an ARController, and attaches the getMarker event forwarder.
+ * 
+ * **Backoff Strategy:**
+ * - On failure, delays retry with exponential backoff (up to 30 seconds)
+ * - Prevents repeated initialization attempts when library is unavailable
+ * 
+ * @param {number} [width=640] - Video/canvas width for ARController
+ * @param {number} [height=480] - Video/canvas height for ARController
+ * @returns {Promise<boolean>} True if initialized successfully
+ * @private
+ */
 async function initArtoolkit(width = 640, height = 480) {
     if (arControllerInitialized) return true;
 
@@ -196,7 +288,17 @@ async function initArtoolkit(width = 640, height = 480) {
     return arControllerInitialized;
 }
 
-// Dedupe marker loading by URL and record tracked IDs
+/**
+ * Load a pattern marker, deduplicating requests by URL.
+ * 
+ * Ensures each pattern URL is loaded only once, even if requested multiple times.
+ * Tracks the loaded marker ID in trackedPatternIds for event filtering.
+ * 
+ * @param {string} patternUrl - URL to the pattern file (.patt)
+ * @returns {Promise<number>} Marker ID assigned by ARToolKit
+ * @throws {Error} If marker loading fails
+ * @private
+ */
 async function loadPatternOnce(patternUrl) {
     if (loadedMarkers.has(patternUrl)) return loadedMarkers.get(patternUrl);
     if (loadingMarkers.has(patternUrl)) return loadingMarkers.get(patternUrl);
