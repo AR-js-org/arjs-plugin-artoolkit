@@ -1,33 +1,33 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from "vite";
 
 export default defineConfig({
-    // Ensure asset URLs are relative to the built module (not absolute at site root)
-    base: './',
-    build: {
-        lib: {
-            entry: 'src/index.js',
-            name: 'ARjsPluginARtoolkit',
-            fileName: (format) => `arjs-plugin-artoolkit.${format}.js`,
-            formats: ['es'], // ES module build ("esm" is not a valid LibraryFormats value)
-        },
-        rollupOptions: {
-            output: {
-                // Keep assets under assets/; relative path is enforced by base: './'
-                assetFileNames: 'assets/[name]-[hash][extname]',
-                // Let Vite/rollup choose relative paths tied to the lib entry; no need to force chunks dirs
-            },
-        },
-        sourcemap: true,
-        target: 'esnext',
+  // Ensure asset URLs are relative to the built module (not absolute at site root)
+  base: "./",
+  build: {
+    lib: {
+      entry: "src/index.js",
+      name: "ARjsPluginARtoolkit",
+      fileName: (format) => `arjs-plugin-artoolkit.${format}.js`,
+      formats: ["es"], // ES module build ("esm" is not a valid LibraryFormats value)
     },
-    worker: {
-        format: 'es',
+    rollupOptions: {
+      output: {
+        // Keep assets under assets/; relative path is enforced by base: './'
+        assetFileNames: "assets/[name]-[hash][extname]",
+        // Let Vite/rollup choose relative paths tied to the lib entry; no need to force chunks dirs
+      },
     },
-    // Inject the package version as a global constant for the plugin to log.
-    // Vite automatically populates process.env.npm_package_version.
-    define: {
-        __ARTOOLKIT_PLUGIN_VERSION__: JSON.stringify(
-            process.env.npm_package_version,
-        ),
-    },
+    sourcemap: true,
+    target: "esnext",
+  },
+  worker: {
+    format: "es",
+  },
+  // Inject the package version as a global constant for the plugin to log.
+  // Vite automatically populates process.env.npm_package_version.
+  define: {
+    __ARTOOLKIT_PLUGIN_VERSION__: JSON.stringify(
+      process.env.npm_package_version,
+    ),
+  },
 });

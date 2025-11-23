@@ -15,6 +15,7 @@ npm install
 ### 2. Serve the Example
 
 You must serve from the repository root so that:
+
 - The built ESM bundle (`/dist/arjs-plugin-artoolkit.es.js`) and worker asset (`/dist/assets/worker-*.js`) resolve
 - Example paths under `/examples/simple-marker/` resolve
 - Relative module URLs (e.g. pattern files) resolve correctly
@@ -45,6 +46,7 @@ Then open: http://localhost:8080/examples/simple-marker/index.html
 #### Option C: Using VS Code Live Server
 
 If you're using VS Code with the Live Server extension:
+
 1. Right-click on `examples/simple-marker/index.html`
 2. Select "Open with Live Server"
 
@@ -75,15 +77,18 @@ npm run dev
 When importing the built ESM from `dist/`, ARToolKit is bundled and no extra configuration is required. The plugin also exposes the build-time version constant. Since `camera_para.dat` is now included locally in this example, we reference it directly:
 
 ```js
-import { ArtoolkitPlugin, ARTOOLKIT_PLUGIN_VERSION } from '/dist/arjs-plugin-artoolkit.es.js';
+import {
+  ArtoolkitPlugin,
+  ARTOOLKIT_PLUGIN_VERSION,
+} from "/dist/arjs-plugin-artoolkit.es.js";
 
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat'
+  cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
 });
 
-console.log('Plugin version (constant):', ARTOOLKIT_PLUGIN_VERSION);
-console.log('Plugin version (instance):', plugin.version);
+console.log("Plugin version (constant):", ARTOOLKIT_PLUGIN_VERSION);
+console.log("Plugin version (instance):", plugin.version);
 ```
 
 If you develop against `src/` instead (without bundling yet), provide an explicit ARToolKit module URL. You can also override camera parameters (local file included), WASM base URL, and detection confidence:
@@ -91,11 +96,12 @@ If you develop against `src/` instead (without bundling yet), provide an explici
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js',
-  cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat',
+  artoolkitModuleUrl:
+    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js",
+  cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
   minConfidence: 0.6, // Raise/lower to control detection filtering
-  lostThreshold: 5,   // Frames before marker considered lost
-  frameDurationMs: 200 // Approx ms per frame used for lost timing
+  lostThreshold: 5, // Frames before marker considered lost
+  frameDurationMs: 200, // Approx ms per frame used for lost timing
 });
 ```
 
@@ -108,11 +114,11 @@ This example demonstrates:
 3. Pattern Loading: `plugin.loadMarker('/examples/simple-marker/data/patt.hiro', 1)`.
 4. Version Access: `plugin.version` (instance) or `ARTOOLKIT_PLUGIN_VERSION` (constant) for diagnostics.
 5. Event Handling:
-    - `ar:workerReady` — Worker initialized
-    - `ar:markerFound` — First detection of a marker
-    - `ar:markerUpdated` — Subsequent tracking updates
-    - `ar:markerLost` — Marker no longer visible
-    - `ar:getMarker` — Raw ARToolKit getMarker payload (type, matrix, marker fields)
+   - `ar:workerReady` — Worker initialized
+   - `ar:markerFound` — First detection of a marker
+   - `ar:markerUpdated` — Subsequent tracking updates
+   - `ar:markerLost` — Marker no longer visible
+   - `ar:getMarker` — Raw ARToolKit getMarker payload (type, matrix, marker fields)
 
 ## Pattern File
 
@@ -128,7 +134,7 @@ Key parts of the example:
 // Create plugin instance with worker enabled (no artoolkitModuleUrl needed with dist build)
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  cameraParametersUrl: '/examples/simple-marker/data/camera_para.dat'
+  cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
 });
 
 // Initialize and enable
@@ -136,26 +142,30 @@ await plugin.init(core);
 await plugin.enable();
 
 // Load a pattern marker
-const result = await plugin.loadMarker('/examples/simple-marker/data/patt.hiro', 1);
+const result = await plugin.loadMarker(
+  "/examples/simple-marker/data/patt.hiro",
+  1,
+);
 console.log(`Marker loaded with ID: ${result.markerId}`);
 ```
 
 ## Troubleshooting
 
 - Worker not loading?
-    - Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`)
-    - Confirm `/dist/arjs-plugin-artoolkit.es.js` and `/dist/assets/worker-*.js` are reachable (note: filename is `.es.js`, not `.esm.js`)
+  - Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`)
+  - Confirm `/dist/arjs-plugin-artoolkit.es.js` and `/dist/assets/worker-*.js` are reachable (note: filename is `.es.js`, not `.esm.js`)
 - Marker not loading?
-    - Verify the pattern file path is correct and accessible
-    - Ensure the worker is ready before calling `loadMarker()`
+  - Verify the pattern file path is correct and accessible
+  - Ensure the worker is ready before calling `loadMarker()`
 - No detections?
-    - Click “Start Camera” before “Load Marker”
-    - Ensure good lighting and the correct marker
-    - Adjust `minConfidence` in the plugin options (default 0.6) if detections are too strict or too noisy.
+  - Click “Start Camera” before “Load Marker”
+  - Ensure good lighting and the correct marker
+  - Adjust `minConfidence` in the plugin options (default 0.6) if detections are too strict or too noisy.
 
 ## Browser Support
 
 This example requires:
+
 - ES modules
 - Web Workers
 - Modern browser (Chrome 80+, Firefox 75+, Safari 13.1+, Edge 80+)
