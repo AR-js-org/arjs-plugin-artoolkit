@@ -1,9 +1,10 @@
 {
   // Change this to match your project
   "include": ["src/**/*"],
+  "exclude": ["types"],
   "compilerOptions": {
     "target": "ESnext" /* Specify ECMAScript target version: 'ES3' (default), 'ES5', 'ES2015', 'ES2016', 'ES2017', 'ES2018', 'ES2019', 'ES2020', or 'ESNEXT'. */,
-    "module": "ESnext",
+    "module": "nodenext",
     // Tells TypeScript to read JS files, as
     // normally they are ignored as source files
     "allowJs": true,
@@ -13,11 +14,12 @@
     // only output d.ts files
     "emitDeclarationOnly": true,
     /* Module Resolution Options */
-    "moduleResolution": "node",
+    "moduleResolution": "nodenext",
     // Types should go into this directory.
     // Removing this would place the .d.ts files
     // next to the .js files
-    "outDir": "types",
+    //"outDir": "types",
+    "declarationDir": "types",
     // go to js file when using IDE functions like
     // "Go to Definition" in VSCode
     "declarationMap": true

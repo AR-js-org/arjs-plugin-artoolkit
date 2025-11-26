@@ -62,8 +62,20 @@ export { ARTOOLKIT_PLUGIN_VERSION };
  */
 export class ArtoolkitPlugin {
   constructor(options = {}) {
-    this.options = options;
+    /** @type {ArtoolkitPluginOptions} */
+    this.options = {
+      worker: true,
+      lostThreshold: 5,
+      frameDurationMs: 200,
+      sweepIntervalMs: 100,
+      artoolkitModuleUrl: undefined,
+      cameraParametersUrl: undefined,
+      wasmBaseUrl: undefined,
+      ...options,
+    };
+    /** @type {EngineCore | null} */
     this.core = null;
+    /** @type {boolean} */
     this.enabled = false;
 
     // Worker and handlers
@@ -602,3 +614,9 @@ export class ArtoolkitPlugin {
     });
   }
 }
+
+/**
+ * @typedef {import("../types/plugin").ArtoolkitPluginOptions} ArtoolkitPluginOptions
+ * @typedef {import("../types/plugin").EngineCore} EngineCore
+ * @typedef {import("../types/plugin").EngineEventBus} EngineEventBus
+ */

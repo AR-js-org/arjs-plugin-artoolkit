@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/arjs-plugin-artoolkit.es.js",
   "module": "dist/arjs-plugin-artoolkit.es.js",
+  "types": "types/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/arjs-plugin-artoolkit.es.js",
