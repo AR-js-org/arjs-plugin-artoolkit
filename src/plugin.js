@@ -88,17 +88,11 @@ export class ArtoolkitPlugin {
     // Marker state tracking: Map<id, { lastSeen: number, visible: boolean }>
     this._markers = new Map();
 
-    // configuration (defaults)
-    // lostThreshold: number of frames to consider a marker lost
-    this.lostThreshold = options.lostThreshold ?? 5; // frames
-    // frameDurationMs: how many milliseconds to consider a single 'frame' (used to convert lostThreshold -> ms)
-    // Default 200ms per frame is a conservative default (5 fps). Consumers can adjust to match their capture rate.
-    this.frameDurationMs = options.frameDurationMs ?? 200;
-    // sweepIntervalMs: how often to run the lost-marker sweep (ms)
-    this.sweepIntervalMs = options.sweepIntervalMs ?? 100;
-
-    // Worker enabled toggle
-    this.workerEnabled = options.worker !== false; // default true
+    // Use options consistently
+    this.lostThreshold = this.options.lostThreshold;
+    this.frameDurationMs = this.options.frameDurationMs;
+    this.sweepIntervalMs = this.options.sweepIntervalMs;
+    this.workerEnabled = this.options.worker;
 
     // Pending loadMarker requests: Map<requestId, { resolve, reject }>
     this._pendingMarkerLoads = new Map();

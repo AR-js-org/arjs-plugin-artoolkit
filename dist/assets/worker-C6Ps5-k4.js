@@ -63,7 +63,10 @@ async function U(a = 640, t = 480) {
     }
   k = (async () => {
     try {
-      const r = await (async () => l.moduleUrl ? (console.log("[Worker] Loading artoolkit from moduleUrl:", l.moduleUrl), await import(l.moduleUrl)) : await import("./ARToolkit-Q5ek8CTR.js").then(function(c) {
+      const r = await (async () => l.moduleUrl ? (console.log(
+        "[Worker] Loading artoolkit from moduleUrl:",
+        l.moduleUrl
+      ), await import(l.moduleUrl)) : await import("./ARToolkit-Q5ek8CTR.js").then(function(c) {
         return c.A;
       }))(), o = r.ARController ?? r.default?.ARController, i = r.ARToolkit ?? r.default?.ARToolkit;
       if (!o)
@@ -75,12 +78,31 @@ async function U(a = 640, t = 480) {
         }
       typeof l.minConfidence == "number" && (g = l.minConfidence);
       const n = l.cameraParametersUrl || "https://raw.githack.com/AR-js-org/AR.js/master/data/data/camera_para.dat";
-      if (console.log("[Worker] ARToolKit init", { width: a, height: t, camUrl: n, minConfidence: g, patternType: C }), s = await o.initWithDimensions(a, t, n, {}), d = !!s, console.log("[Worker] ARToolKit initialized:", d), !d) throw new Error("ARController.initWithDimensions returned falsy controller");
+      if (console.log("[Worker] ARToolKit init", {
+        width: a,
+        height: t,
+        camUrl: n,
+        minConfidence: g,
+        patternType: C
+      }), s = await o.initWithDimensions(
+        a,
+        t,
+        n,
+        {}
+      ), d = !!s, console.log("[Worker] ARToolKit initialized:", d), !d)
+        throw new Error(
+          "ARController.initWithDimensions returned falsy controller"
+        );
       v(), h = 0, M = 0;
     } catch (r) {
       console.error("[Worker] ARToolKit init failed:", r), s = null, d = !1, h = Math.min(h + 1, 6);
       const o = Math.min(3e4, 1e3 * Math.pow(2, h));
-      throw M = Date.now() + o, f({ type: "error", payload: { message: `ARToolKit init failed (${r?.message || r}). Retrying in ${o}ms.` } }), r;
+      throw M = Date.now() + o, f({
+        type: "error",
+        payload: {
+          message: `ARToolKit init failed (${r?.message || r}). Retrying in ${o}ms.`
+        }
+      }), r;
     } finally {
       k = null;
     }
@@ -112,15 +134,28 @@ E(async (a) => {
     if (t === "loadMarker") {
       const { patternUrl: r, size: o = 1, requestId: i } = e || {};
       if (!r) {
-        f({ type: "loadMarkerResult", payload: { ok: !1, error: "Missing patternUrl parameter", requestId: i } });
+        f({
+          type: "loadMarkerResult",
+          payload: {
+            ok: !1,
+            error: "Missing patternUrl parameter",
+            requestId: i
+          }
+        });
         return;
       }
       try {
         if (!await U(640, 480)) throw new Error("ARToolKit not initialized");
         const c = await F(r);
-        typeof s.trackPatternMarkerId == "function" ? s.trackPatternMarkerId(c, o) : typeof s.trackPatternMarker == "function" && s.trackPatternMarker(c, o), f({ type: "loadMarkerResult", payload: { ok: !0, markerId: c, size: o, requestId: i } });
+        typeof s.trackPatternMarkerId == "function" ? s.trackPatternMarkerId(c, o) : typeof s.trackPatternMarker == "function" && s.trackPatternMarker(c, o), f({
+          type: "loadMarkerResult",
+          payload: { ok: !0, markerId: c, size: o, requestId: i }
+        });
       } catch (n) {
-        console.error("[Worker] loadMarker error:", n), f({ type: "loadMarkerResult", payload: { ok: !1, error: n?.message || String(n), requestId: i } });
+        console.error("[Worker] loadMarker error:", n), f({
+          type: "loadMarkerResult",
+          payload: { ok: !1, error: n?.message || String(n), requestId: i }
+        });
       }
       return;
     }
@@ -129,7 +164,9 @@ E(async (a) => {
       if (r) {
         try {
           const n = o || r.width || 640, c = i || r.height || 480;
-          await U(n, c), (!p || u !== n || m !== c) && (u = n, m = c, p = new OffscreenCanvas(u, m), w = p.getContext("2d", { willReadFrequently: !0 })), w.clearRect(0, 0, u, m), w.drawImage(r, 0, 0, u, m);
+          await U(n, c), (!p || u !== n || m !== c) && (u = n, m = c, p = new OffscreenCanvas(u, m), w = p.getContext("2d", {
+            willReadFrequently: !0
+          })), w.clearRect(0, 0, u, m), w.drawImage(r, 0, 0, u, m);
           try {
             r.close?.();
           } catch {
@@ -139,10 +176,18 @@ E(async (a) => {
               s.process(p);
             } catch {
               try {
-                const R = w.getImageData(0, 0, u, m);
+                const R = w.getImageData(
+                  0,
+                  0,
+                  u,
+                  m
+                );
                 s.process(R);
               } catch (R) {
-                console.warn("[Worker] ARToolKit process fallback failed:", R);
+                console.warn(
+                  "[Worker] ARToolKit process fallback failed:",
+                  R
+                );
               }
             }
         } catch (n) {
@@ -154,11 +199,14 @@ E(async (a) => {
       return;
     }
   } catch (r) {
-    f({ type: "error", payload: { message: r?.message || String(r) } });
+    f({
+      type: "error",
+      payload: { message: r?.message || String(r) }
+    });
   }
 });
 try {
   A || (f({ type: "ready" }), A = !0);
 } catch {
 }
-//# sourceMappingURL=worker-D6hMXvjx.js.map
+//# sourceMappingURL=worker-C6Ps5-k4.js.map
