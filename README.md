@@ -15,11 +15,14 @@ ARToolKit marker detection plugin for AR.js core with WebAssembly support.
 The plugin exposes its build-time version both as a constant and on each instance:
 
 ```js
-import { ArtoolkitPlugin, ARTOOLKIT_PLUGIN_VERSION } from '@ar-js-org/arjs-plugin-artoolkit';
+import {
+  ArtoolkitPlugin,
+  ARTOOLKIT_PLUGIN_VERSION,
+} from "@ar-js-org/arjs-plugin-artoolkit";
 
-console.log('Build version:', ARTOOLKIT_PLUGIN_VERSION); // e.g. 0.1.0 or 'unknown'
+console.log("Build version:", ARTOOLKIT_PLUGIN_VERSION); // e.g. 0.1.0 or 'unknown'
 const plugin = new ArtoolkitPlugin();
-console.log('Instance version:', plugin.version);
+console.log("Instance version:", plugin.version);
 ```
 
 If the build define is missing (e.g. raw source / some test runners), the version falls back to `'unknown'`.
@@ -56,6 +59,7 @@ Example:
 ```
 
 Serving notes:
+
 - Serve from a web server so `/dist` assets resolve. The build is configured with `base: './'`, so the worker asset is referenced relative to the ESM file (e.g., `/dist/assets/worker-*.js`).
 - In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative).
 
@@ -66,18 +70,21 @@ If you develop against `src/` (not the built `dist/`), the worker will attempt t
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // provide when using src/
-  cameraParametersUrl: '/path/to/camera_para.dat',
-  wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/', // optional; if your build requires it
-  minConfidence: 0.6
+  artoolkitModuleUrl:
+    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js", // provide when using src/
+  cameraParametersUrl: "/path/to/camera_para.dat",
+  wasmBaseUrl: "/node_modules/@ar-js-org/artoolkit5-js/dist/", // optional; if your build requires it
+  minConfidence: 0.6,
 });
-console.log('Plugin version:', plugin.version);
+console.log("Plugin version:", plugin.version);
 ```
 
 CDN fallback (for source/dev):
+
 - Set `artoolkitModuleUrl` to a CDN ESM endpoint (e.g., jsDelivr/UNPKG) for `@ar-js-org/artoolkit5-js`.
 
 Notes:
+
 - The previous “loader.js” and manual WASM placement flow is no longer used.
 - In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
 
@@ -86,45 +93,56 @@ Notes:
 ### Quick Start (copy-paste)
 
 ```js
-import { ArtoolkitPlugin } from '@ar-js-org/arjs-plugin-artoolkit';
+import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
 
 // Minimal event bus stub
 const eventBus = {
   _h: new Map(),
-  on(e,h){ if(!this._h.has(e)) this._h.set(e,[]); this._h.get(e).push(h); },
-  emit(e,p){ (this._h.get(e)||[]).forEach(fn=>{ try{ fn(p); } catch(err){ console.error(err); } }); }
+  on(e, h) {
+    if (!this._h.has(e)) this._h.set(e, []);
+    this._h.get(e).push(h);
+  },
+  emit(e, p) {
+    (this._h.get(e) || []).forEach((fn) => {
+      try {
+        fn(p);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  },
 };
 const engine = { eventBus };
 
 const plugin = new ArtoolkitPlugin({ worker: true, minConfidence: 0.6 });
 await plugin.init(engine);
 await plugin.enable();
-console.log('Version:', plugin.version);
+console.log("Version:", plugin.version);
 
 // Load a marker (size is world units)
-await plugin.loadMarker('/examples/simple-marker/data/patt.hiro', 1);
+await plugin.loadMarker("/examples/simple-marker/data/patt.hiro", 1);
 
-eventBus.on('ar:markerFound', m => console.log('FOUND', m.id));
-eventBus.on('ar:markerUpdated', m => console.log('UPDATED', m.id));
-eventBus.on('ar:markerLost', m => console.log('LOST', m.id));
+eventBus.on("ar:markerFound", (m) => console.log("FOUND", m.id));
+eventBus.on("ar:markerUpdated", (m) => console.log("UPDATED", m.id));
+eventBus.on("ar:markerLost", (m) => console.log("LOST", m.id));
 ```
 
 ### Register and enable
 
 ```js
-import { ArtoolkitPlugin } from '@ar-js-org/arjs-plugin-artoolkit';
+import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
 
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  lostThreshold: 5,       // frames before a marker is considered lost
-  frameDurationMs: 100,   // expected ms per frame (affects lost timing)
+  lostThreshold: 5, // frames before a marker is considered lost
+  frameDurationMs: 100, // expected ms per frame (affects lost timing)
   // artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // Only for src/dev
-  cameraParametersUrl: '/data/camera_para.dat',
-  minConfidence: 0.6
+  cameraParametersUrl: "/data/camera_para.dat",
+  minConfidence: 0.6,
 });
 
-engine.pluginManager.register('artoolkit', plugin);
-await engine.pluginManager.enable('artoolkit');
+engine.pluginManager.register("artoolkit", plugin);
+await engine.pluginManager.enable("artoolkit");
 ```
 
 ### Events
@@ -133,24 +151,27 @@ The plugin emits the following events on your engine’s event bus:
 
 ```js
 // Marker first detected
-engine.eventBus.on('ar:markerFound', ({ id, poseMatrix, confidence, corners }) => {
-  // poseMatrix is Float32Array(16)
-});
+engine.eventBus.on(
+  "ar:markerFound",
+  ({ id, poseMatrix, confidence, corners }) => {
+    // poseMatrix is Float32Array(16)
+  },
+);
 
 // Marker updated (tracking)
-engine.eventBus.on('ar:markerUpdated', (data) => {
+engine.eventBus.on("ar:markerUpdated", (data) => {
   // same shape as markerFound
 });
 
 // Marker lost
-engine.eventBus.on('ar:markerLost', ({ id }) => {});
+engine.eventBus.on("ar:markerLost", ({ id }) => {});
 
 // Worker lifecycle
-engine.eventBus.on('ar:workerReady', () => {});
-engine.eventBus.on('ar:workerError', (error) => {});
+engine.eventBus.on("ar:workerReady", () => {});
+engine.eventBus.on("ar:workerError", (error) => {});
 
 // Raw ARToolKit getMarker (filtered: PATTERN_MARKER only, above minConfidence)
-engine.eventBus.on('ar:getMarker', (payload) => {
+engine.eventBus.on("ar:getMarker", (payload) => {
   // payload = { type, matrix: number[16], marker: { idPatt, cfPatt, idMatrix?, cfMatrix?, vertex? } }
 });
 ```
@@ -162,12 +183,12 @@ engine.eventBus.on('ar:getMarker', (payload) => {
 const imageBitmap = await createImageBitmap(video);
 
 // Emit an engine update; the plugin transfers the ImageBitmap to the worker
-engine.eventBus.emit('engine:update', {
+engine.eventBus.emit("engine:update", {
   id: frameId,
   timestamp: Date.now(),
   imageBitmap,
   width: imageBitmap.width,
-  height: imageBitmap.height
+  height: imageBitmap.height,
 });
 
 // The ImageBitmap is transferred and cannot be reused; the worker will close it.
@@ -176,7 +197,10 @@ engine.eventBus.emit('engine:update', {
 ### Loading a pattern marker
 
 ```js
-const { markerId, size } = await plugin.loadMarker('/examples/simple-marker/data/patt.hiro', 1);
+const { markerId, size } = await plugin.loadMarker(
+  "/examples/simple-marker/data/patt.hiro",
+  1,
+);
 ```
 
 ## Examples
@@ -193,9 +217,11 @@ python3 -m http.server 8080
 ```
 
 Open:
+
 - http://localhost:8080/examples/simple-marker/index.html
 
 The example demonstrates:
+
 - Webcam capture with getUserMedia
 - ImageBitmap creation and frame submission
 - Event handling and console output
@@ -230,13 +256,13 @@ The example demonstrates:
 ## Troubleshooting
 
 - Worker asset 404:
-    - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.es.js` and that `/dist/assets/worker-*.js` is served.
-    - The build uses `base: './'`, so worker URLs are relative to the ESM file location.
+  - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.es.js` and that `/dist/assets/worker-*.js` is served.
+  - The build uses `base: './'`, so worker URLs are relative to the ESM file location.
 - “Failed to resolve module specifier” in the Worker (source/dev only):
-    - Provide `artoolkitModuleUrl` or serve `/node_modules` from your dev server
+  - Provide `artoolkitModuleUrl` or serve `/node_modules` from your dev server
 - Worker not starting:
-    - Serve via HTTP/HTTPS; ensure ES modules and Workers are supported
+  - Serve via HTTP/HTTPS; ensure ES modules and Workers are supported
 - No detections:
-    - Confirm camera started, correct marker pattern, sufficient lighting
-    - Adjust `minConfidence` to reduce/raise filtering
+  - Confirm camera started, correct marker pattern, sufficient lighting
+  - Adjust `minConfidence` to reduce/raise filtering
   - Check `plugin.version` (if 'unknown', ensure build-time define is configured)

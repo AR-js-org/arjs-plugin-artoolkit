@@ -4,7 +4,6 @@
  * Provides coordinate system conversion helpers for transforming ARToolKit
  * modelView matrices into Three.js-compatible matrix format.
  */
-
 /**
  * Converts an ARToolKit modelView matrix to Three.js Matrix4 compatible format.
  *
@@ -22,10 +21,5 @@
  *
  * @note Concrete conversion logic will be refined when fully integrating artoolkit5-js
  */
-export function convertModelViewToThreeMatrix(modelViewArray) {
-  const out = new Float32Array(16);
-  // TODO: Apply coordinate system transformation if needed
-  // Currently passes through; adjust based on artoolkit5-js conventions
-  for (let i = 0; i < 16; i++) out[i] = modelViewArray[i];
-  return out;
-}
+export function convertModelViewToThreeMatrix(modelViewArray: Float32Array | Array<number>): Float32Array;
+//# sourceMappingURL=matrix.d.ts.map

@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/arjs-plugin-artoolkit.es.js",
   "module": "dist/arjs-plugin-artoolkit.es.js",
+  "types": "types/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/arjs-plugin-artoolkit.es.js",
@@ -16,8 +17,11 @@
   ],
   "scripts": {
     "build": "vite build",
-    "test": "vitest",
+    "build:types": "tsc --emitDeclarationOnly",
     "coverage": "vitest run --coverage",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest",
     "lint": "eslint . --ext .js",
     "prepare": "husky",
     "smoke:node": "node dev/smoke-node.js",
@@ -36,6 +40,8 @@
     "eslint": "^9.39.1",
     "husky": "^9.1.7",
     "jsdom": "^27.2.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
     "vite": "^7.2.4",
     "vitest": "^4.0.13"
   },
