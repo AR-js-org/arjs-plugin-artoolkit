@@ -65,7 +65,7 @@ Serving notes:
 
 ## Using source (development mode)
 
-If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case you should provide `artoolkitModuleUrl` or ensure your dev server can resolve `@ar-js-org/artoolkit5-js`.
+If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (such as a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Note: Browser module loading issues may occur if the module is not properly served or is not an ES module. The previous smoke test example was removed for this reason.
 
 ```js
 const plugin = new ArtoolkitPlugin({
