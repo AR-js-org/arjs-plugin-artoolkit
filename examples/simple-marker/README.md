@@ -142,9 +142,10 @@ console.log(`Marker loaded with ID: ${result.markerId}`);
 ## Troubleshooting
 
 **Worker not loading or module loading errors?**
-  - Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`).
-  - Confirm `/dist/arjs-plugin-artoolkit.es.js` and `/dist/assets/worker-*.js` are reachable (note: filename is `.es.js`, not `.esm.js`).
-  - If you see errors like `Failed to resolve module specifier` or `ARController export not found`, check that you are using the correct build and serving files from the right location. See the Known Issues/FAQ section above for more details.
+
+- Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`).
+- Confirm `/dist/arjs-plugin-artoolkit.es.js` and `/dist/assets/worker-*.js` are reachable (note: filename is `.es.js`, not `.esm.js`).
+- If you see errors like `Failed to resolve module specifier` or `ARController export not found`, check that you are using the correct build and serving files from the right location. See the Known Issues/FAQ section above for more details.
 - Marker not loading?
   - Verify the pattern file path is correct and accessible
   - Ensure the worker is ready before calling `loadMarker()`
