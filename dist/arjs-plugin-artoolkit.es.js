@@ -1,4 +1,4 @@
-const d = "0.1.0";
+const d = "0.1.1";
 class m {
   constructor(g = {}) {
     this.options = {

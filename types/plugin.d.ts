@@ -89,7 +89,7 @@ export class ArtoolkitPlugin {
     lostThreshold: any;
     frameDurationMs: any;
     sweepIntervalMs: any;
-    workerEnabled: boolean;
+    workerEnabled: any;
     _pendingMarkerLoads: Map<any, any>;
     _nextLoadRequestId: number;
     workerReady: boolean;
