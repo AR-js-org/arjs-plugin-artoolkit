@@ -93,17 +93,7 @@ console.log("Plugin version (instance):", plugin.version);
 
 If you develop against `src/` instead (without bundling yet), provide an explicit ARToolKit module URL. You can also override camera parameters (local file included), WASM base URL, and detection confidence:
 
-```js
-const plugin = new ArtoolkitPlugin({
-  worker: true,
-  artoolkitModuleUrl:
-    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js",
-  cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
-  minConfidence: 0.6, // Raise/lower to control detection filtering
-  lostThreshold: 5, // Frames before marker considered lost
-  frameDurationMs: 200, // Approx ms per frame used for lost timing
-});
-```
+> **Note:** The previous `dev/smoke-browser.html` example is deprecated and references to it have been removed due to browser module loading issues. For development against `src/`, ensure you provide correct module URLs and configuration, but do not rely on the old smoke test example.
 
 ## What’s Happening
 
@@ -151,9 +141,10 @@ console.log(`Marker loaded with ID: ${result.markerId}`);
 
 ## Troubleshooting
 
-- Worker not loading?
-  - Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`)
-  - Confirm `/dist/arjs-plugin-artoolkit.es.js` and `/dist/assets/worker-*.js` are reachable (note: filename is `.es.js`, not `.esm.js`)
+**Worker not loading or module loading errors?**
+  - Ensure you’re serving via HTTP/HTTPS from the repository root (not `file://`).
+  - Confirm `/dist/arjs-plugin-artoolkit.es.js` and `/dist/assets/worker-*.js` are reachable (note: filename is `.es.js`, not `.esm.js`).
+  - If you see errors like `Failed to resolve module specifier` or `ARController export not found`, check that you are using the correct build and serving files from the right location. See the Known Issues/FAQ section above for more details.
 - Marker not loading?
   - Verify the pattern file path is correct and accessible
   - Ensure the worker is ready before calling `loadMarker()`
@@ -169,3 +160,12 @@ This example requires:
 - ES modules
 - Web Workers
 - Modern browser (Chrome 80+, Firefox 75+, Safari 13.1+, Edge 80+)
+
+## Known Issues / FAQ
+
+- **Why was `dev/smoke-browser.html` removed?**
+  - The smoke test relied on browser module loading that is not reliable across environments and caused confusion for users. Please use the `examples/simple-marker` for browser testing.
+- **Why do I get module loading errors?**
+  - Always use the ESM build from `dist/` and serve from the repository root. If you develop against `src/`, ensure you provide correct module URLs and configuration.
+- **How do I test changes?**
+  - Use the `examples/simple-marker` example and follow the setup instructions above.
