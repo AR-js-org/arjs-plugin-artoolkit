@@ -36,14 +36,14 @@
   "author": "AR.js contributors",
   "license": "MIT",
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.0.13",
+    "@vitest/coverage-v8": "^4.0.14",
     "eslint": "^9.39.1",
     "husky": "^9.1.7",
     "jsdom": "^27.2.0",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
     "vite": "^7.2.4",
-    "vitest": "^4.0.13"
+    "vitest": "^4.0.14"
   },
   "dependencies": {
     "@ar-js-org/artoolkit5-js": "^0.3.2"
