@@ -5,6 +5,8 @@
 [![CI](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions)
 [![Build](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions/workflows/build.yml/badge.svg)](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions)
 [![npm version](https://img.shields.io/npm/v/@ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://www.npmjs.com/package/@ar-js-org/arjs-plugin-artoolkit)
+[![Types](https://img.shields.io/badge/Types-included-blue?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/blob/main/types/index.d.ts)
+[![Prettier](https://img.shields.io/badge/Prettier-enabled-2b7489?style=flat-square)](https://prettier.io/)
 [![License](https://img.shields.io/github/license/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/blob/main/LICENSE)
 [![Coverage](https://img.shields.io/codecov/c/gh/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://codecov.io/gh/ar-js-org/arjs-plugin-artoolkit)
 
@@ -92,6 +94,7 @@ Serving notes:
 - Serve from a web server so `/dist` assets resolve. The build is configured with `base: './'`, so the worker asset is referenced relative to the ESM file (e.g., `/dist/assets/worker-*.js`).
 - In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative).
 
+<a id="using-source-development-mode-"></a>
 ## Using source (development mode) 🛠️
 
 If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (for example a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Browser module loading issues may occur if the module is not properly served or is not an ES module.
