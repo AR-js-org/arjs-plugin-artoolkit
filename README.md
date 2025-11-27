@@ -1,14 +1,36 @@
 # arjs-plugin-artoolkit
 
-ARToolKit marker detection plugin for AR.js core with WebAssembly support.
+[![GitHub stars](https://img.shields.io/github/stars/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/network/members)
+[![CI](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions)
+[![Build](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions/workflows/build.yml/badge.svg)](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions)
+
+Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers using WebAssembly and ImageBitmap zero-copy transfers, providing an event-driven API for realtime camera input and easy integration. 🔎🎯🚀
+
+## Table of Contents
+
+- [Features](#features)
+- [Version](#version)
+- [Installation](#installation)
+- [Using the ESM build (recommended)](#using-the-esm-build-recommended)
+- [Using source (development mode)](#using-source-development-mode)
+- [Usage](#usage)
+  - [Quick Start (copy-paste)](#quick-start-copy-paste)
+  - [Register and enable](#register-and-enable)
+  - [Events](#events)
+  - [Sending frames](#sending-frames)
+  - [Loading a pattern marker](#loading-a-pattern-marker)
+- [Examples](#examples)
+- [API Reference](#api-reference)
+- [Troubleshooting](#troubleshooting)
 
 ## Features
 
-- Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
-- ImageBitmap support — zero-copy frame transfer (browser)
-- ARToolKit integration — square pattern markers
-- Event-driven API — marker found/updated/lost + raw getMarker forwarding
-- Filtering — only forwards PATTERN_MARKER events above a minimum confidence
+- 🧠 Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
+- 🖼️ ImageBitmap support — zero-copy frame transfer for efficient camera frames
+- 🧩 ARToolKit integration — square pattern markers (patt files)
+- ⚡ Event-driven API — markerFound / markerUpdated / markerLost + raw getMarker events
+- 🔍 Confidence filtering — only forwards PATTERN_MARKER events above minConfidence
 
 ## Version
 
@@ -25,12 +47,12 @@ const plugin = new ArtoolkitPlugin();
 console.log("Instance version:", plugin.version);
 ```
 
-If the build define is missing (e.g. raw source / some test runners), the version falls back to `'unknown'`.
+If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
 
 ## Installation
 
 ```bash
-// Attention!! not yet published!
+# Attention: package may not be published yet
 npm install @ar-js-org/arjs-plugin-artoolkit
 ```
 
@@ -65,18 +87,17 @@ Serving notes:
 
 ## Using source (development mode)
 
-If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (such as a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Note: Browser module loading issues may occur if the module is not properly served or is not an ES module. The previous smoke test example was removed for this reason.
+If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (for example a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Browser module loading issues may occur if the module is not properly served or is not an ES module.
 
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl:
-    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js", // provide when using src/
-  cameraParametersUrl: "/path/to/camera_para.dat",
-  wasmBaseUrl: "/node_modules/@ar-js-org/artoolkit5-js/dist/", // optional; if your build requires it
+  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // provide when using src/
+  cameraParametersUrl: '/path/to/camera_para.dat',
+  wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/', // optional; if your build requires it
   minConfidence: 0.6,
 });
-console.log("Plugin version:", plugin.version);
+console.log('Plugin version:', plugin.version);
 ```
 
 CDN fallback (for source/dev):
@@ -85,7 +106,7 @@ CDN fallback (for source/dev):
 
 Notes:
 
-- The previous “loader.js” and manual WASM placement flow is no longer used.
+- The previous loader.js and manual WASM placement flow is no longer used.
 - In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
 
 ## Usage
@@ -231,7 +252,7 @@ The example demonstrates:
 
 ### ArtoolkitPlugin options
 
-```ts
+```text
 {
   worker?: boolean;            // Enable worker (default: true)
   lostThreshold?: number;      // Frames before 'lost' (default: 5)
