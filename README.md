@@ -307,4 +307,12 @@ The example demonstrates:
 - No detections:
   - Confirm camera started, correct marker pattern, sufficient lighting
   - Adjust `minConfidence` to reduce/raise filtering
+
   - Check `plugin.version` (if 'unknown', ensure build-time define is configured)
+
+## Build & Publishing Notes
+
+- Sourcemap files (`.map`) generated in `dist/` and `types/` are excluded from the repository and the npm package to reduce package size and avoid shipping debug artifacts.
+  - See `.gitignore` and `.npmignore` for details.
+- When installing the package with `npm install`, the libraries are automatically built thanks to the `preinstall` script in `package.json`.
+  - This ensures all required files are always generated and ready to use.
