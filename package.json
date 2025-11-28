@@ -1,7 +1,7 @@
 {
   "name": "@ar-js-org/arjs-plugin-artoolkit",
-  "version": "0.1.1",
-  "description": "WebWorker ARToolKit plugin for AR.js providing fast WebAssembly marker detection with ImageBitmap zero-copy transfers and an event-driven API for real-time marker tracking.",
+  "version": "0.1.2",
+  "description": "ARToolKit detection plugin for AR.js core (ECS plugin)",
   "type": "module",
   "main": "dist/arjs-plugin-artoolkit.es.js",
   "module": "dist/arjs-plugin-artoolkit.es.js",
@@ -29,9 +29,7 @@
     "smoke:browser": "npx http-server -p 8080"
   },
   "keywords": [
-    "ar",
     "arjs",
-    "arjs-plugin",
     "artoolkit",
     "artoolkit5",
     "augmented-reality",
