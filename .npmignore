@@ -1,3 +1,38 @@
-dev/smoke-node.js
-dev/smoke-browser.html
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# node / build
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# source & dev
+src/
 dev/
+examples/
+tests/
+test/
+coverage/
+.nyc_output/
+*.log
+
+# configs (opzionale)
+.eslintrc*
+.prettierrc*
+.editorconfig
+
+# environment
+.env
+.env.local
+.env.*.local
+
+# git / github
+.git/
+.gitignore
+.github/
+
+# maps (opzionale)
+*.map
