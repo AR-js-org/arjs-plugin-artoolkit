@@ -1,7 +1,7 @@
 {
   "name": "@ar-js-org/arjs-plugin-artoolkit",
   "version": "0.1.1",
-  "description": "ARToolKit detection plugin for AR.js core (ECS plugin)",
+  "description": "WebWorker ARToolKit plugin for AR.js providing fast WebAssembly marker detection with ImageBitmap zero-copy transfers and an event-driven API for real-time marker tracking.",
   "type": "module",
   "main": "dist/arjs-plugin-artoolkit.es.js",
   "module": "dist/arjs-plugin-artoolkit.es.js",
@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "types"
   ],
   "scripts": {
     "build": "vite build",
@@ -28,12 +29,22 @@
     "smoke:browser": "npx http-server -p 8080"
   },
   "keywords": [
-    "arjs",
-    "artoolkit",
     "ar",
-    "plugin"
+    "arjs",
+    "arjs-plugin",
+    "artoolkit",
+    "artoolkit5",
+    "augmented-reality",
+    "esmodule",
+    "marker",
+    "marker-detection",
+    "plugin",
+    "tracking",
+    "wasm",
+    "webworker",
+    "worker"
   ],
-  "author": "AR.js contributors",
+  "author": "Walter Perdan @kalwalt https://github.com/kalwalt",
   "license": "MIT",
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.14",

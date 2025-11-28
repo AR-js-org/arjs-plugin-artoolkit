@@ -1,16 +1,45 @@
-# arjs-plugin-artoolkit
+# 🎯 arjs-plugin-artoolkit ⚡🕶️
 
-ARToolKit marker detection plugin for AR.js core with WebAssembly support.
+[![GitHub stars](https://img.shields.io/github/stars/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/network/members)
+[![CI](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions)
+[![Build](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions/workflows/build.yml/badge.svg)](https://github.com/ar-js-org/arjs-plugin-artoolkit/actions)
+[![npm version](https://img.shields.io/npm/v/@ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://www.npmjs.com/package/@ar-js-org/arjs-plugin-artoolkit)
+[![Types](https://img.shields.io/badge/Types-included-blue?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/blob/main/types/index.d.ts)
+[![Prettier](https://img.shields.io/badge/Prettier-enabled-2b7489?style=flat-square)](https://prettier.io/)
+[![License](https://img.shields.io/github/license/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://github.com/ar-js-org/arjs-plugin-artoolkit/blob/main/LICENSE)
+[![Coverage](https://img.shields.io/codecov/c/gh/ar-js-org/arjs-plugin-artoolkit?style=flat-square)](https://codecov.io/gh/ar-js-org/arjs-plugin-artoolkit)
 
-## Features
+Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers using WebAssembly and ImageBitmap zero-copy transfers, offering an event-driven API for realtime camera input, fast detection, and easy integration. 🔎🎯🚀⚡🧩
 
-- Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
-- ImageBitmap support — zero-copy frame transfer (browser)
-- ARToolKit integration — square pattern markers
-- Event-driven API — marker found/updated/lost + raw getMarker forwarding
-- Filtering — only forwards PATTERN_MARKER events above a minimum confidence
+## Table of Contents
 
-## Version
+- [Features](#features-)
+- [Version](#version-)
+- [Installation](#installation-)
+- [Using the ESM build (recommended)](#using-the-esm-build-recommended-)
+- [Using source (development mode)](#using-source-development-mode-)
+- [Usage](#usage-)
+  - [Quick Start (copy-paste)](#quick-start-copy-paste-)
+  - [Register and enable](#register-and-enable-)
+  - [Events](#events-)
+  - [Sending frames](#sending-frames-)
+  - [Loading a pattern marker](#loading-a-pattern-marker-)
+- [Examples](#examples-)
+- [API Reference](#api-reference-)
+- [Troubleshooting](#troubleshooting-)
+
+<a id="features-"></a>
+## Features ✨🧭
+
+- 🧠 Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
+- 🖼️ ImageBitmap support — zero-copy frame transfer for efficient camera frames
+- 🧩 ARToolKit integration — square pattern markers (patt files)
+- ⚡ Event-driven API — markerFound / markerUpdated / markerLost + raw getMarker events
+- 🔍 Confidence filtering — only forwards PATTERN_MARKER events above minConfidence
+
+<a id="version-"></a>
+## Version 🏷️
 
 The plugin exposes its build-time version both as a constant and on each instance:
 
@@ -25,16 +54,18 @@ const plugin = new ArtoolkitPlugin();
 console.log("Instance version:", plugin.version);
 ```
 
-If the build define is missing (e.g. raw source / some test runners), the version falls back to `'unknown'`.
+If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
 
-## Installation
+<a id="installation-"></a>
+## Installation 📦
 
 ```bash
-// Attention!! not yet published!
+# Attention: package may not be published yet
 npm install @ar-js-org/arjs-plugin-artoolkit
 ```
 
-## Using the ESM build (recommended)
+<a id="using-the-esm-build-recommended-"></a>
+## Using the ESM build (recommended) 🚀
 
 When you import the built ESM bundle from `dist/`, the worker and ARToolKit are already bundled and referenced correctly. You do NOT need to pass `artoolkitModuleUrl`.
 
@@ -63,20 +94,20 @@ Serving notes:
 - Serve from a web server so `/dist` assets resolve. The build is configured with `base: './'`, so the worker asset is referenced relative to the ESM file (e.g., `/dist/assets/worker-*.js`).
 - In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative).
 
-## Using source (development mode)
+<a id="using-source-development-mode-"></a>
+## Using source (development mode) 🛠️
 
-If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (such as a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Note: Browser module loading issues may occur if the module is not properly served or is not an ES module. The previous smoke test example was removed for this reason.
+If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (for example a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Browser module loading issues may occur if the module is not properly served or is not an ES module.
 
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl:
-    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js", // provide when using src/
-  cameraParametersUrl: "/path/to/camera_para.dat",
-  wasmBaseUrl: "/node_modules/@ar-js-org/artoolkit5-js/dist/", // optional; if your build requires it
+  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // provide when using src/
+  cameraParametersUrl: '/path/to/camera_para.dat',
+  wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/', // optional; if your build requires it
   minConfidence: 0.6,
 });
-console.log("Plugin version:", plugin.version);
+console.log('Plugin version:', plugin.version);
 ```
 
 CDN fallback (for source/dev):
@@ -85,12 +116,14 @@ CDN fallback (for source/dev):
 
 Notes:
 
-- The previous “loader.js” and manual WASM placement flow is no longer used.
+- The previous loader.js and manual WASM placement flow is no longer used.
 - In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
 
-## Usage
+<a id="usage-"></a>
+## Usage 🧩
 
-### Quick Start (copy-paste)
+<a id="quick-start-copy-paste-"></a>
+### Quick Start (copy-paste) ⚡
 
 ```js
 import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
@@ -127,7 +160,8 @@ eventBus.on("ar:markerUpdated", (m) => console.log("UPDATED", m.id));
 eventBus.on("ar:markerLost", (m) => console.log("LOST", m.id));
 ```
 
-### Register and enable
+<a id="register-and-enable-"></a>
+### Register and enable ✅
 
 ```js
 import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
@@ -145,7 +179,8 @@ engine.pluginManager.register("artoolkit", plugin);
 await engine.pluginManager.enable("artoolkit");
 ```
 
-### Events
+<a id="events-"></a>
+### Events 🔔
 
 The plugin emits the following events on your engine’s event bus:
 
@@ -176,7 +211,8 @@ engine.eventBus.on("ar:getMarker", (payload) => {
 });
 ```
 
-### Sending frames
+<a id="sending-frames-"></a>
+### Sending frames 🎞️
 
 ```js
 // Create ImageBitmap from a <video> or <canvas>
@@ -194,7 +230,8 @@ engine.eventBus.emit("engine:update", {
 // The ImageBitmap is transferred and cannot be reused; the worker will close it.
 ```
 
-### Loading a pattern marker
+<a id="loading-a-pattern-marker-"></a>
+### Loading a pattern marker 📐
 
 ```js
 const { markerId, size } = await plugin.loadMarker(
@@ -203,7 +240,8 @@ const { markerId, size } = await plugin.loadMarker(
 );
 ```
 
-## Examples
+<a id="examples-"></a>
+## Examples 🧪
 
 A complete webcam-based example is available under `examples/simple-marker/`.
 
@@ -227,11 +265,13 @@ The example demonstrates:
 - Event handling and console output
 - Raw `ar:getMarker` payloads for debugging
 
-## API Reference
+<a id="api-reference-"></a>
+## API Reference 📚
 
-### ArtoolkitPlugin options
+<a id="arplugin-options-"></a>
+### ArtoolkitPlugin options 🧭
 
-```ts
+```text
 {
   worker?: boolean;            // Enable worker (default: true)
   lostThreshold?: number;      // Frames before 'lost' (default: 5)
@@ -244,7 +284,8 @@ The example demonstrates:
 }
 ```
 
-### Methods
+<a id="methods-"></a>
+### Methods 🛠️
 
 - `async init(core)` — initialize with engine core
 - `async enable()` — start worker and subscribe to frames
@@ -253,7 +294,8 @@ The example demonstrates:
 - `getMarkerState(markerId)` — current tracked state
 - `async loadMarker(patternUrl: string, size = 1)` — load and track a pattern
 
-## Troubleshooting
+<a id="troubleshooting-"></a>
+## Troubleshooting 🧰
 
 - Worker asset 404:
   - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.es.js` and that `/dist/assets/worker-*.js` is served.
