@@ -89,9 +89,7 @@ out
 
 # Generic dist directories (ignored everywhere)…
 **/dist
-# …but keep the repository root /dist tracked (for built ESM + worker assets)
-!/dist
-!/dist/**
+# (dist/ is ignored; releases will carry built artifacts)
 
 # Gatsby files
 .cache/
