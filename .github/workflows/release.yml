@@ -1,0 +1,105 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name for the release (required for manual dispatch)'
+        required: false
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Build types
+        run: npm run build:types || true
+
+      - name: Ensure dist exists
+        run: |
+          if [ ! -d dist ]; then
+            echo "Nothing in dist/ to release" >&2
+            exit 1
+          fi
+
+      - name: Install GitHub CLI and authenticate
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            # github.ref for tag events is refs/tags/<tag>
+            ref_name=${GITHUB_REF##*/}
+            echo "tag=$ref_name" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release and upload dist files (include types.zip when available)
+        run: |
+          TAG=${{ steps.tag.outputs.tag }}
+          echo "Creating release $TAG and uploading dist/* assets"
+          # If types/ exists, zip it so directory structure is preserved when downloaded
+          if [ -d types ]; then
+            echo "Zipping types/ into types.zip"
+            zip -r types.zip types
+            gh release create "$TAG" dist/* types.zip --title "$TAG" --notes "Automated release with built assets and typings"
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --notes "Automated release with built assets"
+          fi
+
+      - name: Show uploaded release assets
+        run: gh release view "${{ steps.tag.outputs.tag }}" --json assets --jq '.assets[].name'
+
+  publish:
+    needs: build_and_release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (for publish)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies (disable husky in CI)
+        env:
+          HUSKY: 0
+        run: npm ci
+
+      - name: Build (ensure dist and types present)
+        run: |
+          npm run build
+          npm run build:types || true
+
+      - name: Verify package tarball (dry run)
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

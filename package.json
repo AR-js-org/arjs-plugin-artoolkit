@@ -12,14 +12,10 @@
       "require": "./dist/arjs-plugin-artoolkit.es.js"
     }
   },
-  "files": [
-    "dist",
-    "types"
-  ],
   "scripts": {
     "build": "vite build",
     "build:types": "tsc --emitDeclarationOnly",
-    "preinstall": "npm run build && npm run build:types",
+    "prepublishOnly": "npm run build && npm run build:types",
     "coverage": "vitest run --coverage",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
