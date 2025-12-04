@@ -17,10 +17,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Read Node version from .nvmrc
+        id: nvm
+        run: |
+          if [ -f .nvmrc ]; then
+            NODE=$(cat .nvmrc)
+          else
+            NODE=22
+          fi
+          echo "node-version=$NODE" >> $GITHUB_OUTPUT
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ steps.nvm.outputs.node-version }}
           cache: 'npm'
 
       - name: Install dependencies
