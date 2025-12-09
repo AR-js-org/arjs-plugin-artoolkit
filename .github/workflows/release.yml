@@ -49,12 +49,6 @@ jobs:
             exit 1
           fi
 
-      - name: Install GitHub CLI and authenticate
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gh
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
       - name: Determine release tag
         id: tag
         run: |
