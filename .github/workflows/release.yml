@@ -63,14 +63,22 @@ jobs:
       - name: Create Release and upload dist files (include types.zip when available)
         run: |
           TAG=${{ steps.tag.outputs.tag }}
-          echo "Creating release $TAG and uploading dist/* assets"
+          echo "Preparing to release $TAG and upload dist/* assets"
           # If types/ exists, zip it so directory structure is preserved when downloaded
           if [ -d types ]; then
             echo "Zipping types/ into types.zip"
             zip -r types.zip types
-            gh release create "$TAG" dist/* types.zip --title "$TAG" --notes "Automated release with built assets and typings"
+            ASSETS="dist/* types.zip"
           else
-            gh release create "$TAG" dist/* --title "$TAG" --notes "Automated release with built assets"
+            ASSETS="dist/*"
+          fi
+          # Check if release exists
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, uploading assets"
+            gh release upload "$TAG" $ASSETS --clobber
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" $ASSETS --title "$TAG" --notes "Automated release with built assets"
           fi
 
       - name: Show uploaded release assets
