@@ -314,8 +314,8 @@ The example demonstrates:
 
 - Sourcemap files (`.map`) generated in `dist/` and `types/` are excluded from the repository and the npm package to reduce package size and avoid shipping debug artifacts.
   - See `.gitignore` and `.npmignore` for details.
-- When installing the package with `npm install`, the libraries are automatically built thanks to the `preinstall` script in `package.json`.
-  - This ensures all required files are always generated and ready to use.
+- When installing the package from npm (`npm install @ar-js-org/arjs-plugin-artoolkit`), all required built files are included and ready to use.
+  - If you install from source (e.g., cloning the repository), you must run the build manually: `npm run build`.
 
 ### Releases and Built Artifacts
 
