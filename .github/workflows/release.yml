@@ -88,14 +88,3 @@ jobs:
             echo "Creating release $TAG..."
             gh release create "$TAG" $ASSETS --title "$TAG" --notes "Automated release with built assets"
           fi
-
-      - name: Setup Node.js for publish
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
