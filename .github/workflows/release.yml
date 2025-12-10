@@ -47,6 +47,12 @@ jobs:
           if [ -n "${{ github.event.inputs.tag }}" ]; then
             echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
           else
+            # Validate that GITHUB_REF is actually a tag reference
+            if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+              echo "Error: Manual dispatch requires a tag input, or workflow must be triggered by a tag push event" >&2
+              echo "GITHUB_REF=$GITHUB_REF is not a tag reference" >&2
+              exit 1
+            fi
             # github.ref for tag events is refs/tags/<tag>
             ref_name=${GITHUB_REF##*/}
             echo "tag=$ref_name" >> $GITHUB_OUTPUT
