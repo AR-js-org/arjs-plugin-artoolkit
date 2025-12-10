@@ -59,10 +59,13 @@ jobs:
           ref_name=${GITHUB_REF##*/}
           echo "tag=$ref_name" >> $GITHUB_OUTPUT
 
-      - name: Zip types directory
+      - name: Prepare release assets
         run: |
           if [ -d types ]; then
             zip -r types.zip types
+          fi
+          if [ -d dist ]; then
+            zip -r dist.zip dist
           fi
 
       - name: Create or Update GitHub Release
@@ -70,7 +73,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG=${{ steps.tag.outputs.tag }}
-          ASSETS="dist/*"
+          ASSETS=""
+          if [ -f dist.zip ]; then
+            ASSETS="$ASSETS dist.zip"
+          fi
           if [ -f types.zip ]; then
             ASSETS="$ASSETS types.zip"
           fi
