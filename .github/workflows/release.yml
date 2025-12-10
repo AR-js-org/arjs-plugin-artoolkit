@@ -53,6 +53,8 @@ jobs:
           fi
 
       - name: Create Release and upload dist files (include types.zip when available)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG=${{ steps.tag.outputs.tag }}
           echo "Preparing to release $TAG and upload dist/* assets"
@@ -74,6 +76,8 @@ jobs:
           fi
 
       - name: Show uploaded release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release view "${{ steps.tag.outputs.tag }}" --json assets --jq '.assets[].name'
 
 # (Remove lines 85–118 entirely; no replacement needed)
