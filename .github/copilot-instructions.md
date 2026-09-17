@@ -16,12 +16,14 @@ Three modules: `src/plugin.js` (lifecycle, marker registry, events),
 pixels in and poses out), `src/worker/worker.js` (message pump). Keep DOM and
 `postMessage` concerns in the worker; keep the detector free of both.
 
-Events are `ar:markerFound`, `ar:markerUpdated` and `ar:markerLost`, with
-payloads `{ markerId, type, matrix, confidence, timestamp }`. `matrix` is a
+`ar:markerFound` and `ar:markerUpdated` carry
+`{ markerId, type, matrix, confidence, timestamp }`; `ar:markerLost` carries
+`{ markerId, type, timestamp }` — no matrix, no confidence. `matrix` is a
 `Float32Array(16)`, 4x4 column-major, WebGL-ready. `type` is `"pattern"` or
 `"barcode"`; the two families have independent ID registries, so marker state is
 keyed by type and ID together, never by ID alone.
 
 ESM only. JSDoc on public API. prettier formats everything. Vitest with jsdom
 for tests; never load real WASM in a unit test. Conventional commit prefixes.
-Branch flow is feature branch → `dev` → `main`.
+Branch from `dev` and open every PR against `dev`; `main` only receives `dev` at
+release time. Commits follow Conventional Commits.
