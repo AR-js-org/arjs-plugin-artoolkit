@@ -20,7 +20,9 @@ export { ArtoolkitPlugin } from "./plugin.js";
 export { ARTOOLKIT_PLUGIN_VERSION } from "./plugin.js";
 
 /**
- * Converts ARToolKit modelView matrices to Three.js compatible format.
- * Handles coordinate system differences between ARToolKit and Three.js.
+ * Copies a 16-element pose matrix.
+ *
+ * @deprecated Poses from artoolkit5-ts need no conversion; the `matrix` field
+ * on marker events is already WebGL-ready.
  */
 export { convertModelViewToThreeMatrix } from "./utils/matrix.js";
