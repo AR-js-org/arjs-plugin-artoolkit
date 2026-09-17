@@ -146,8 +146,34 @@ WASM resources before the worker is terminated.
 `matrix` is `matrixGL` passed through unchanged: 4x4 column-major right-handed,
 already WebGL-ready.
 
-`corners` is dropped. artoolkit5-ts returns no vertex data, and today's value is
-derived from `marker.vertex`, a field that will no longer exist.
+`corners` is dropped, and it is worth recording that this removes nothing that
+ever worked.
+
+artoolkit5-js documents `markerInfo.vertex` as nested — `[[x,y],[x,y],[x,y],[x,y]]`,
+length 4 — and consumes it that way in `drawDebugMarker` (`vertex[0][0]`,
+`vertex[0][1]`). The worker forwards it unchanged, but `plugin.js` unpacks it as
+if it were flat:
+
+```js
+for (let i = 0; i + 1 < v.length; i += 2) {
+  corners.push([v[i], v[i + 1]]);
+}
+```
+
+Against a 4-element nested array that produces two entries, each a pair of
+points, rather than four corners. Consumers have been receiving a malformed
+value. Nothing reads it — `corners` has no occurrences in `arjs-plugin-threejs`
+source or in AR.js-next examples once vendored bundles and minified `dist`
+output are excluded — which is why the defect went unnoticed.
+
+Corner data is genuinely useful for debug overlays, marker outlines,
+hit-testing and occlusion masks, so this is a deferral rather than a rejection.
+The data exists in the WASM heap as `ARMarkerInfo.vertex`; artoolkit5-ts simply
+never reads it out, and has no reference to `vertex`, `corners` or `pos`
+anywhere in its source. An upstream issue asks for `vertex` on `MarkerPose`;
+once it lands, the plugin re-adds `corners` correctly as four `[x, y]` points.
+Shipping a field we cannot populate, or preserving a broken one, both seem worse
+than removing it and fixing it at the source.
 
 `convertModelViewToThreeMatrix` remains exported. Its `TODO` comment is replaced
 with accurate documentation: it returns a defensive copy, and no coordinate
@@ -280,7 +306,10 @@ For the README's upgrade section. This is a breaking release:
 2. Event payloads rename `id` to `markerId` and `poseMatrix` to `matrix`, and
    add `type`. `arjs-plugin-threejs` already reads both spellings, so it keeps
    working without changes.
-3. `corners` is no longer emitted.
+3. `corners` is no longer emitted. The value shipped until now was malformed —
+   nested vertex data unpacked as if it were flat — so no correct consumer can
+   have depended on it. Proper corner data returns once artoolkit5-ts exposes
+   `vertex`.
 4. The `artoolkitModuleUrl` option is renamed `wasmUrl`.
 5. Worker-based detection is browser-only and documented as such.
    `worker: false` still runs in Node for lifecycle testing.
@@ -291,3 +320,6 @@ For the README's upgrade section. This is a breaking release:
 2. `trackBarcode(barcodeId, size)` plus the barcode example.
 3. Merge `main` into `dev` to recover the 0.1.3 release-workflow fixes
    (`dev` is at 0.1.2).
+4. Upstream, on `AR-js-org/artoolkit5-ts`: expose `ARMarkerInfo.vertex` on
+   `MarkerPose` so marker corners are available to consumers. Once released,
+   re-add `corners` to this plugin's event payloads as four `[x, y]` points.
