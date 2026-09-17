@@ -13,16 +13,23 @@ describe("ArtoolkitPlugin (more coverage)", () => {
     const plugin = new ArtoolkitPlugin({ worker: true });
     await plugin.init(core);
 
-    // Fake a browser worker with spies
+    // Fake a browser worker with spies. postMessage/terminate record into a
+    // shared sequence so the dispose-before-terminate ordering can be pinned.
     const addEventListener = vi.fn();
     const removeEventListener = vi.fn();
-    const terminate = vi.fn();
+    const calls: string[] = [];
+    const postMessage = vi.fn((msg: any) => {
+      if (msg?.type === "dispose") calls.push("dispose");
+    });
+    const terminate = vi.fn(() => {
+      calls.push("terminate");
+    });
     // @ts-ignore
     plugin._worker = {
       addEventListener,
       removeEventListener,
       terminate,
-      postMessage: vi.fn(),
+      postMessage,
     };
 
     await plugin.enable();
@@ -35,7 +42,14 @@ describe("ArtoolkitPlugin (more coverage)", () => {
       "message",
       expect.any(Function),
     );
+
+    // Termination is deferred so the worker can process the dispose message.
+    expect(terminate).not.toHaveBeenCalled();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(terminate).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(["dispose", "terminate"]);
   });
 
   it("engine:update falls back when postMessage throws", async () => {
