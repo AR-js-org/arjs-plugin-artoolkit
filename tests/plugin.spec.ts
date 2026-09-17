@@ -35,14 +35,16 @@ describe("ArtoolkitPlugin", () => {
       data: {
         type: "detectionResult",
         payload: {
-          detections: [
+          frameId: 1,
+          detected: [
             {
               id: 1,
+              type: "pattern",
               confidence: 0.92,
-              poseMatrix: new Array(16).fill(0),
-              corners: [],
+              matrixGL: new Float32Array(16),
             },
           ],
+          lost: [],
         },
       },
     });
@@ -53,14 +55,16 @@ describe("ArtoolkitPlugin", () => {
       data: {
         type: "detectionResult",
         payload: {
-          detections: [
+          frameId: 1,
+          detected: [
             {
               id: 1,
+              type: "pattern",
               confidence: 0.88,
-              poseMatrix: new Array(16).fill(1),
-              corners: [],
+              matrixGL: new Float32Array(16),
             },
           ],
+          lost: [],
         },
       },
     });
@@ -69,9 +73,9 @@ describe("ArtoolkitPlugin", () => {
     expect(updated).toHaveBeenCalledTimes(1);
     // Optional shape assertions
     const first = found.mock.calls[0][0];
-    expect(first.id).toBe(1);
-    expect(first.poseMatrix).toBeInstanceOf(Float32Array);
-    expect(first.poseMatrix.length).toBe(16);
+    expect(first.markerId).toBe(1);
+    expect(first.matrix).toBeInstanceOf(Float32Array);
+    expect(first.matrix.length).toBe(16);
   });
 
   it("resolves loadMarker promises when worker replies", async () => {
