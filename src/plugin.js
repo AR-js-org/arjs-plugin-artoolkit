@@ -3,7 +3,8 @@
  *
  * Manages the lifecycle of marker-based AR tracking using ARToolKit.
  * Supports web worker-based detection, marker state tracking, and event emission.
- * Works in both browser (Web Worker) and Node.js (worker_threads) environments.
+ * Detection is browser-only (needs Worker and OffscreenCanvas); elsewhere the
+ * plugin still runs its lifecycle without detecting markers.
  *
  * @module plugin
  */
@@ -38,9 +39,9 @@ export { ARTOOLKIT_PLUGIN_VERSION };
  * @param {number} [options.lostThreshold=5] - Frames before marking a marker as lost
  * @param {number} [options.frameDurationMs=200] - Milliseconds per frame (for lost calculation)
  * @param {number} [options.sweepIntervalMs=100] - Interval for running lost-marker sweep
- * @param {string} [options.artoolkitModuleUrl] - Custom URL for ARToolKit module
  * @param {string} [options.cameraParametersUrl] - Camera calibration parameters URL
- * @param {string} [options.wasmBaseUrl] - Base URL for ARToolKit WASM files
+ * @param {string} [options.wasmUrl] - Explicit URL for the ARToolKit WASM binary
+ * @param {number} [options.minConfidence=0.6] - Drop detections below this confidence (0-1)
  *
  * @example
  * const plugin = new ArtoolkitPlugin({
@@ -57,7 +58,7 @@ export { ARTOOLKIT_PLUGIN_VERSION };
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
  *
- * @note Works in both browser (Web Worker) and Node.js (worker_threads) environments
+ * @note Detection is browser-only (needs Worker and OffscreenCanvas); elsewhere the plugin still runs its lifecycle without detecting markers
  */
 export class ArtoolkitPlugin {
   constructor(options = {}) {
@@ -67,9 +68,9 @@ export class ArtoolkitPlugin {
       lostThreshold: 5,
       frameDurationMs: 200,
       sweepIntervalMs: 100,
-      artoolkitModuleUrl: undefined,
       cameraParametersUrl: undefined,
-      wasmBaseUrl: undefined,
+      wasmUrl: undefined,
+      minConfidence: 0.6,
       ...options,
     };
     /** @type {EngineCore | null} */
@@ -84,7 +85,9 @@ export class ArtoolkitPlugin {
     // Engine update subscription
     this._onEngineUpdate = this._onEngineUpdate.bind(this);
 
-    // Marker state tracking: Map<id, { lastSeen: number, visible: boolean }>
+    // Marker state tracking, keyed `${type}:${id}` because pattern and barcode
+    // markers have independent ID registries: Map<string, { lastSeen: number,
+    // visible: boolean, id: number, type: string }>
     this._markers = new Map();
 
     // Use options consistently
@@ -217,35 +220,22 @@ export class ArtoolkitPlugin {
     // If the frame contains an ImageBitmap (browser), transfer it to the worker for zero-copy processing.
     if (this._worker && frame.imageBitmap) {
       try {
-        // Browser Worker supports transfer list; Node worker_threads supports postMessage but not ImageBitmap.
-        if (typeof Worker !== "undefined") {
-          // Browser: use transferable ImageBitmap
-          // The browser worker will receive event.data.payload.imageBitmap
-          this._worker.postMessage(
-            {
-              type: "processFrame",
-              payload: {
-                frameId: frame.id,
-                imageBitmap: frame.imageBitmap,
-                width: frame.width,
-                height: frame.height,
-              },
-            },
-            // transfer list: ImageBitmap is transferable
-            [frame.imageBitmap],
-          );
-          // After transfer, the main thread's ImageBitmap is neutered; consumer should not reuse it.
-        } else {
-          // Node: ImageBitmap isn't available/transferable; fall back to sending metadata or ArrayBuffer if provided
-          this._worker.postMessage({
+        // Browser: use transferable ImageBitmap
+        // The browser worker will receive event.data.payload.imageBitmap
+        this._worker.postMessage(
+          {
             type: "processFrame",
             payload: {
               frameId: frame.id,
+              imageBitmap: frame.imageBitmap,
               width: frame.width,
               height: frame.height,
             },
-          });
-        }
+          },
+          // transfer list: ImageBitmap is transferable
+          [frame.imageBitmap],
+        );
+        // After transfer, the main thread's ImageBitmap is neutered; consumer should not reuse it.
       } catch (err) {
         console.warn(
           "Artoolkit worker postMessage (ImageBitmap) failed, falling back to frameId only",
@@ -277,20 +267,11 @@ export class ArtoolkitPlugin {
   }
 
   /**
-   * Start the detection worker (cross-platform).
+   * Start the detection worker.
    *
-   * Creates and initializes a Web Worker (browser) or worker_threads.Worker (Node.js).
-   * Attaches message handlers and sends initial configuration to the worker.
-   *
-   * **Browser:** Uses `new Worker(new URL(...), { type: 'module' })`
-   * **Node.js:** Uses `worker_threads.Worker` with file path resolution
-   *
-   * Sends init message with:
-   * - artoolkitModuleUrl: Custom ARToolKit module URL
-   * - cameraParametersUrl: Camera calibration parameters
-   * - wasmBaseUrl: Base URL for WASM files
-   *
-   * Includes watchdog timer to resend init if worker doesn't respond within 500ms.
+   * Browser-only: detection needs `Worker` and `OffscreenCanvas`. With
+   * `worker: false` the plugin runs its lifecycle without detecting anything,
+   * which is what `dev/smoke-node.js` exercises under Node.
    *
    * @private
    * @returns {Promise<void>}
@@ -298,79 +279,54 @@ export class ArtoolkitPlugin {
   async _startWorker() {
     if (this._worker) return;
 
-    // Browser environment: global Worker exists
-    if (typeof Worker !== "undefined") {
-      // Works in browsers and bundlers that support new URL(...) for workers
-      this._worker = new Worker(
-        new URL("./worker/worker.js", import.meta.url),
-        { type: "module" },
+    if (typeof Worker === "undefined") {
+      console.warn(
+        "[ArtoolkitPlugin] Worker is unavailable; detection is browser-only.",
       );
-    } else {
-      // Node environment: use worker_threads.Worker
-      const { Worker: NodeWorker } = await import("node:worker_threads");
-      const workerUrl = new URL("./worker/worker.js", import.meta.url);
-      const { fileURLToPath } = await import("node:url");
-      const workerPath = fileURLToPath(workerUrl);
-      this._worker = new NodeWorker(workerPath, { type: "module" });
+      return;
     }
 
-    // Attach message handler (same for both environments)
-    if (this._worker.addEventListener) {
-      this._worker.addEventListener("message", this._onWorkerMessage);
-    } else if (this._worker.on) {
-      this._worker.on("message", this._onWorkerMessage);
-    }
+    this._worker = new Worker(new URL("./worker/worker.js", import.meta.url), {
+      type: "module",
+    });
+    this._worker.addEventListener("message", this._onWorkerMessage);
 
-    // If worker supports postMessage init, send init
-    try {
-      this._worker.postMessage?.({
-        type: "init",
-        payload: {
-          moduleUrl: this.options.artoolkitModuleUrl || null,
-          cameraParametersUrl: this.options.cameraParametersUrl || null,
-          wasmBaseUrl: this.options.wasmBaseUrl || null,
-        },
-      });
-      // Watchdog: if 'ready' wasn’t received shortly, resend a no-op init once
-      setTimeout(() => {
-        if (!this.workerReady) {
-          try {
-            this._worker?.postMessage?.({ type: "init", payload: {} });
-          } catch {}
-        }
-      }, 500);
-    } catch (e) {
-      // ignore
-    }
+    this._worker.postMessage({
+      type: "init",
+      payload: {
+        cameraParametersUrl: this.options.cameraParametersUrl || null,
+        wasmUrl: this.options.wasmUrl || null,
+        minConfidence: this.options.minConfidence,
+      },
+    });
+
+    // Watchdog: resend init once if 'ready' did not arrive promptly.
+    setTimeout(() => {
+      if (!this.workerReady) {
+        this._worker?.postMessage({ type: "init", payload: {} });
+      }
+    }, 500);
   }
 
   /**
    * Stop and terminate the detection worker.
    *
-   * Removes message event handlers and terminates the worker thread.
-   * Works for both browser Workers and Node.js worker_threads.
+   * Asks the worker to release its ARToolKit state before terminating, so WASM
+   * resources are freed rather than abandoned.
    *
    * @private
    */
   _stopWorker() {
     if (!this._worker) return;
 
-    // Remove handler
-    if (this._worker.removeEventListener) {
-      this._worker.removeEventListener("message", this._onWorkerMessage);
-    } else if (this._worker.off) {
-      this._worker.off("message", this._onWorkerMessage);
+    try {
+      this._worker.postMessage({ type: "dispose" });
+    } catch {
+      // Worker may already be gone; termination below is what matters.
     }
 
-    try {
-      if (typeof Worker !== "undefined") {
-        this._worker.terminate();
-      } else {
-        this._worker.terminate?.();
-      }
-    } catch (e) {
-      // ignore
-    }
+    this._worker.removeEventListener("message", this._onWorkerMessage);
+    this._worker.terminate();
     this._worker = null;
   }
 
@@ -476,21 +432,15 @@ export class ArtoolkitPlugin {
    * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
    * - `error`: Worker error, emits ar:workerError event
    *
-   * **Cross-platform handling:**
-   * - Browser workers wrap messages in `event.data`
-   * - Node.js worker_threads pass raw payload
-   *
-   * @param {Object|MessageEvent} ev - Message event from worker
-   * @param {Object} [ev.data] - Message data (browser workers)
+   * @param {MessageEvent} ev - Message event from the worker
+   * @param {Object} [ev.data] - Message data
    * @param {string} ev.data.type - Message type
    * @param {*} ev.data.payload - Message payload
    *
    * @private
    */
   _onWorkerMessage(ev) {
-    // worker_threads messages arrive as the raw payload; browser workers wrap in event.data
-    const data = ev && ev.data !== undefined ? ev.data : ev;
-    const { type, payload } = data || {};
+    const { type, payload } = ev.data || {};
     if (type === "ready") {
       console.log("[Plugin] Worker ready");
       this.workerReady = true;
