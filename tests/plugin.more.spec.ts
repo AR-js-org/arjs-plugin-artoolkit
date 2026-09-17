@@ -64,7 +64,7 @@ describe("ArtoolkitPlugin (more coverage)", () => {
   it("getMarkerState returns null when marker not tracked", async () => {
     const plugin = new ArtoolkitPlugin({ worker: false });
     await plugin.init(core);
-    expect(plugin.getMarkerState(12345)).toBeNull();
+    expect(plugin.getMarkerState(12345, "pattern")).toBeNull();
   });
 
   it("detectionResult with no detections is safely ignored", async () => {
@@ -76,6 +76,6 @@ describe("ArtoolkitPlugin (more coverage)", () => {
     plugin._onWorkerMessage({ data: { type: "detectionResult", payload: {} } });
 
     // No exception; no markers added
-    expect(plugin.getMarkerState(1)).toBeNull();
+    expect(plugin.getMarkerState(1, "pattern")).toBeNull();
   });
 });

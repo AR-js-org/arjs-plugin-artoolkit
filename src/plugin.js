@@ -56,7 +56,6 @@ export { ARTOOLKIT_PLUGIN_VERSION };
  * @fires ar:markerLost - When a marker hasn't been seen for lostThreshold frames
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
- * @fires ar:getMarker - Raw AR.js-style marker detection events
  *
  * @note Works in both browser (Web Worker) and Node.js (worker_threads) environments
  */
@@ -376,56 +375,95 @@ export class ArtoolkitPlugin {
   }
 
   /**
-   * Apply detection results and emit appropriate marker events.
+   * Build the registry key for a marker.
    *
-   * Normalizes detection data and determines whether to emit markerFound or markerUpdated.
-   * Updates internal marker tracking state (lastSeen, visible, lostCount).
+   * Pattern and barcode markers have independent ID registries in
+   * artoolkit5-ts — both start at 0 — so the family is part of the identity.
+   * Keying on the bare ID would make pattern 3 and barcode 3 the same marker.
    *
-   * **Event Logic:**
-   * - First detection or previously invisible → emits `ar:markerFound`
-   * - Already visible → emits `ar:markerUpdated`
-   *
-   * @param {Array<Object>} detections - Array of detection results from worker
-   * @param {number} detections[].id - Marker ID
-   * @param {Array<number>} detections[].poseMatrix - 16-element pose matrix
-   * @param {number} [detections[].confidence=0] - Detection confidence (0-1)
-   * @param {Array<Array<number>>} [detections[].corners=[]] - Marker corner coordinates
-   *
+   * @param {number} id - Marker ID within its family
+   * @param {string} type - Marker family, 'pattern' or 'barcode'
+   * @returns {string} Registry key
    * @private
    */
-  _applyDetections(detections) {
-    if (!detections || !Array.isArray(detections)) return;
-    for (const d of detections) {
-      const id = d?.id;
-      if (id === null || id === undefined) continue;
+  _markerKey(id, type) {
+    return `${type}:${id}`;
+  }
+
+  /**
+   * Apply detection results and emit marker events.
+   *
+   * A marker not currently visible emits `ar:markerFound`; one already visible
+   * emits `ar:markerUpdated`.
+   *
+   * @param {Array<Object>} detected - Poses from the worker
+   * @param {number} detected[].id - Marker ID within its family
+   * @param {string} detected[].type - 'pattern' or 'barcode'
+   * @param {number} detected[].confidence - Match confidence, 0-1
+   * @param {Float32Array} detected[].matrixGL - 4x4 column-major pose
+   * @private
+   */
+  _applyDetections(detected) {
+    if (!Array.isArray(detected)) return;
+
+    for (const pose of detected) {
+      const { id, type } = pose || {};
+      if (id === null || id === undefined || !type) continue;
 
       const now = Date.now();
-      const poseMatrix = new Float32Array(d.poseMatrix || []);
-      const confidence = d.confidence ?? 0;
-      const corners = d.corners ?? [];
+      const key = this._markerKey(id, type);
+      const matrix =
+        pose.matrixGL instanceof Float32Array
+          ? pose.matrixGL
+          : new Float32Array(pose.matrixGL || 16);
+      const confidence = pose.confidence ?? 0;
 
-      const prev = this._markers.get(id);
+      const prev = this._markers.get(key);
+      const payload = {
+        markerId: id,
+        type,
+        matrix,
+        confidence,
+        timestamp: now,
+      };
+
       if (!prev || !prev.visible) {
-        this._markers.set(id, { lastSeen: now, visible: true, lostCount: 0 });
-        this.core?.eventBus?.emit("ar:markerFound", {
-          id,
-          poseMatrix,
-          confidence,
-          corners,
-          timestamp: now,
-        });
+        this._markers.set(key, { lastSeen: now, visible: true, id, type });
+        this.core?.eventBus?.emit("ar:markerFound", payload);
       } else {
         prev.lastSeen = now;
-        prev.lostCount = 0;
-        this._markers.set(id, prev);
-        this.core?.eventBus?.emit("ar:markerUpdated", {
-          id,
-          poseMatrix,
-          confidence,
-          corners,
-          timestamp: now,
-        });
+        this._markers.set(key, prev);
+        this.core?.eventBus?.emit("ar:markerUpdated", payload);
       }
+    }
+  }
+
+  /**
+   * Emit `ar:markerLost` for markers the detector reports as gone.
+   *
+   * A lost report for an untracked marker is ignored: confidence filtering can
+   * drop a detection the library still considers tracked, so the plugin may
+   * never have seen it.
+   *
+   * @param {Array<Object>} lost - Entries of `{ id, type }`
+   * @private
+   */
+  _applyLost(lost) {
+    if (!Array.isArray(lost)) return;
+
+    for (const entry of lost) {
+      const { id, type } = entry || {};
+      if (id === null || id === undefined || !type) continue;
+
+      const key = this._markerKey(id, type);
+      if (!this._markers.has(key)) continue;
+
+      this._markers.delete(key);
+      this.core?.eventBus?.emit("ar:markerLost", {
+        markerId: id,
+        type,
+        timestamp: Date.now(),
+      });
     }
   }
 
@@ -434,8 +472,7 @@ export class ArtoolkitPlugin {
    *
    * Processes different message types and routes them appropriately:
    * - `ready`: Worker initialized, sets workerReady flag
-   * - `detectionResult`: Normalized detection data, applies via _applyDetections
-   * - `getMarker`: AR.js-style marker event, forwards to event bus and converts to detection
+   * - `detectionResult`: Applies detections and losses via _applyDetections/_applyLost
    * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
    * - `error`: Worker error, emits ar:workerError event
    *
@@ -459,58 +496,9 @@ export class ArtoolkitPlugin {
       this.workerReady = true;
       this.core?.eventBus?.emit("ar:workerReady", {});
     } else if (type === "detectionResult") {
-      console.log("[Plugin] Received detectionResult:", payload);
-      // Normalize to marker events
-      if (!payload || !Array.isArray(payload.detections)) return;
-      this._applyDetections(payload.detections);
-    } else if (type === "getMarker") {
-      // Forward AR.js-style getMarker payload (emitted by the worker) to the app/event bus
-      try {
-        console.log("[Plugin] getMarker", payload);
-      } catch (_) {}
-      this.core?.eventBus?.emit("ar:getMarker", payload);
-
-      // ALSO translate this getMarker into a detection to drive markerFound/Updated
-      try {
-        const m = payload?.marker || {};
-        const id = m.idPatt ?? m.patternId ?? m.pattern_id ?? null;
-
-        // Matrix normalization
-        let poseArray = null;
-        if (Array.isArray(payload?.matrix)) {
-          poseArray = payload.matrix.slice(0, 16);
-        } else if (
-          payload?.matrix &&
-          typeof payload.matrix.length === "number"
-        ) {
-          poseArray = Array.from(payload.matrix).slice(0, 16);
-        }
-
-        // Corners/vertex normalization (optional)
-        let corners = [];
-        const v = m.vertex;
-        if (Array.isArray(v)) {
-          // vertex may be [x0,y0,x1,y1,...]
-          for (let i = 0; i + 1 < v.length; i += 2) {
-            corners.push([v[i], v[i + 1]]);
-          }
-        }
-
-        const confidence = m.cfPatt ?? m.confidence ?? 0;
-
-        if (id != null && poseArray && poseArray.length === 16) {
-          this._applyDetections([
-            {
-              id,
-              confidence,
-              poseMatrix: poseArray,
-              corners,
-            },
-          ]);
-        }
-      } catch (e) {
-        // ignore conversion errors; raw getMarker still forwarded
-      }
+      if (!payload) return;
+      this._applyDetections(payload.detected);
+      this._applyLost(payload.lost);
     } else if (type === "loadMarkerResult") {
       console.log("[Plugin] Received loadMarkerResult:", payload);
       const { requestId, ok, error, markerId, size } = payload || {};
@@ -533,39 +521,46 @@ export class ArtoolkitPlugin {
   }
 
   /**
-   * Internal sweep to detect and emit lost markers.
+   * Emit `ar:markerLost` for markers that have gone stale.
    *
-   * Checks all tracked markers against the lost threshold.
-   * Markers not seen recently are removed and ar:markerLost is emitted.
+   * The detector reports losses itself, on the frame a marker disappears, and
+   * that is the primary path. This sweep covers what the detector structurally
+   * cannot see: frames that stop arriving at all — a stalled camera, a
+   * backgrounded tab, a dead worker — where `processFrame` is never called and
+   * a visible marker would otherwise stay visible forever.
    *
    * @private
    */
   _sweepMarkers() {
     const now = Date.now();
     const lostThresholdMs = this.lostThreshold * this.frameDurationMs;
-    for (const [id, state] of this._markers.entries()) {
-      const deltaMs = now - (state.lastSeen || 0);
-      if (deltaMs > lostThresholdMs) {
-        this._markers.delete(id);
-        this.core.eventBus.emit("ar:markerLost", { id, timestamp: now });
-      }
+
+    for (const [key, state] of this._markers.entries()) {
+      if (now - (state.lastSeen || 0) <= lostThresholdMs) continue;
+
+      this._markers.delete(key);
+      this.core?.eventBus?.emit("ar:markerLost", {
+        markerId: state.id,
+        type: state.type,
+        timestamp: now,
+      });
     }
   }
 
   /**
    * Get the current tracking state of a marker.
    *
-   * @param {number} markerId - Marker ID to query
-   * @returns {Object|null} Marker state object with lastSeen, visible, lostCount, or null if not tracked
+   * @param {number} markerId - Marker ID within its family
+   * @param {string} [type='pattern'] - Marker family, 'pattern' or 'barcode'
+   * @returns {Object|null} State with `lastSeen`, `visible`, `id` and `type`,
+   *   or null if the marker is not tracked
    *
    * @example
-   * const state = plugin.getMarkerState(42);
-   * if (state && state.visible) {
-   *   console.log('Marker 42 last seen:', state.lastSeen);
-   * }
+   * const state = plugin.getMarkerState(42, 'pattern');
+   * if (state && state.visible) console.log('last seen', state.lastSeen);
    */
-  getMarkerState(markerId) {
-    return this._markers.get(markerId) || null;
+  getMarkerState(markerId, type = "pattern") {
+    return this._markers.get(this._markerKey(markerId, type)) || null;
   }
 
   /**
