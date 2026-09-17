@@ -61,7 +61,9 @@ message-passing concerns belong in the worker.
 | worker → main | `error`            | `{ message }`                                                    |
 
 `detected` entries are `{ id, type, confidence, matrixGL }`; `lost` entries are
-`{ id, type }`.
+`{ id, type }`. These use `id` rather than `markerId` because they mirror
+artoolkit5-ts's `MarkerPose` shape directly; the rename to `markerId` happens at
+the event boundary in `plugin.js`.
 
 ## Event contract
 
@@ -87,7 +89,6 @@ Anything keyed on the bare ID will make pattern 3 and barcode 3 collide.
 - JSDoc on every exported function, class and public method.
 - prettier formats everything; run `npm run format` before committing.
 - husky runs on commit. `HUSKY=0` disables it in CI.
-- Conventional commit prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
 
 ## Testing
 
@@ -112,6 +113,33 @@ tested.
 functions used here are `createARToolKitState`, `disposeARToolKitState`,
 `loadPatternMarker`, `trackMarker`, `trackBarcodeMarker` and `processFrame`.
 
+## Commits
+
+Every commit follows [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer]
+```
+
+Types used in this repository: `feat`, `fix`, `docs`, `chore`, `refactor`,
+`test`, `ci`, `perf`. Description in the imperative, lower case, no trailing
+period.
+
+Breaking changes take `!` after the type and a `BREAKING CHANGE:` footer saying
+what consumers must change:
+
+```
+feat!: rename marker event payload fields
+
+BREAKING CHANGE: `id` becomes `markerId` and `poseMatrix` becomes `matrix`.
+```
+
+Commits predating this convention do not follow it; it applies going forward.
+
 ## Git
 
 - Branch flow: feature branch → `dev` → `main`. Never commit directly to `main`.
@@ -119,3 +147,11 @@ functions used here are `createARToolKitState`, `disposeARToolKitState`,
   repository's own git config decide authorship. Overriding it has previously
   misattributed commits to the wrong GitHub account, and undoing that costs a
   `filter-branch` plus a force-push.
+
+## Pull requests
+
+- **Branch from `dev`, never from `main`:** `git checkout -b feat/<short-name> dev`
+- **Open every PR against `dev`.** `main` receives changes only by merging `dev`
+  at release time, never directly from a feature branch.
+- PR titles follow the same conventional-commit format as commit subjects.
+- Keep a PR to one logical change. If a branch grows a second concern, split it.
