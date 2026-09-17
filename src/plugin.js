@@ -311,23 +311,33 @@ export class ArtoolkitPlugin {
   /**
    * Stop and terminate the detection worker.
    *
-   * Asks the worker to release its ARToolKit state before terminating, so WASM
-   * resources are freed rather than abandoned.
+   * Asks the worker to dispose its ARToolKit state before terminating. This is
+   * best effort, not a guarantee: `postMessage` only queues the request on the
+   * worker's event loop, so termination is deferred by one macrotask to give
+   * the worker a chance to process it. Terminating in the same tick would
+   * discard the message almost every time.
+   *
+   * Nothing is leaked when the dispose does not land — terminating a Worker
+   * destroys its entire context, including the WASM heap that holds all of
+   * artoolkit5-ts's state. The dispose is a courtesy to the library, not a
+   * memory-management requirement.
    *
    * @private
    */
   _stopWorker() {
     if (!this._worker) return;
 
+    const worker = this._worker;
+    this._worker = null;
+
     try {
-      this._worker.postMessage({ type: "dispose" });
+      worker.postMessage({ type: "dispose" });
     } catch {
       // Worker may already be gone; termination below is what matters.
     }
 
-    this._worker.removeEventListener("message", this._onWorkerMessage);
-    this._worker.terminate();
-    this._worker = null;
+    worker.removeEventListener("message", this._onWorkerMessage);
+    setTimeout(() => worker.terminate(), 0);
   }
 
   /**
