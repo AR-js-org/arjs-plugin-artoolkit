@@ -128,6 +128,13 @@
           plugin = new ArtoolkitPlugin({
             worker: true,
             cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
+            // Vite's library build does not copy the WASM binary into dist/, and
+            // artoolkit5-ts resolves it relative to the worker chunk when no URL
+            // is given — so it must be pointed at explicitly. `npm run
+            // smoke:browser` serves the repository root, which makes the
+            // installed package's copy reachable at this path.
+            wasmUrl:
+              "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
           });
 
           // Register listeners BEFORE enable to avoid missing early 'ready'
