@@ -192,4 +192,69 @@ describe("artoolkit-detector", () => {
       lost: [],
     });
   });
+
+  it("rejects loadPattern after dispose instead of using the freed state", async () => {
+    const detector = createDetector({
+      cameraParametersUrl: "/camera_para.dat",
+    });
+    await detector.ensureReady(640, 480);
+    detector.dispose();
+
+    await expect(detector.loadPattern("/patt.hiro", 1)).rejects.toThrow(
+      /disposed/i,
+    );
+    expect(mocks.loadPatternMarker).not.toHaveBeenCalled();
+  });
+
+  it("rejects a pending loadPattern when dispose happens before readiness", async () => {
+    const detector = createDetector({
+      cameraParametersUrl: "/camera_para.dat",
+    });
+    const pending = detector.loadPattern("/patt.hiro", 1);
+    detector.dispose();
+
+    await expect(pending).rejects.toThrow(/disposed/i);
+  });
+
+  it("rejects a pending loadPattern once initialisation has failed for good", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createARToolKitState.mockRejectedValue(new Error("wasm missing"));
+      const detector = createDetector({
+        cameraParametersUrl: "/camera_para.dat",
+      });
+      const pending = detector.loadPattern("/patt.hiro", 1);
+
+      // Backoff blocks immediate retries, so step past it between attempts.
+      for (let i = 0; i < 6; i++) {
+        await detector.ensureReady(640, 480);
+        vi.advanceTimersByTime(60000);
+      }
+
+      await expect(pending).rejects.toThrow(/failed/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disposes a state that finishes initialising after dispose was called", async () => {
+    let resolveCreate;
+    mocks.createARToolKitState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    const detector = createDetector({
+      cameraParametersUrl: "/camera_para.dat",
+    });
+
+    const readying = detector.ensureReady(640, 480);
+    detector.dispose();
+    resolveCreate({ id: "late-state" });
+    await readying;
+
+    expect(mocks.disposeARToolKitState).toHaveBeenCalledWith({
+      id: "late-state",
+    });
+  });
 });

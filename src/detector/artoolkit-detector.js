@@ -67,11 +67,25 @@ export function createDetector(options = {}) {
   let failedUntil = 0;
   let disposed = false;
 
-  /** Resolves once state exists, so loadPattern can be called before readiness. */
+  /** Resolves once state exists; rejects if the detector can never become ready. */
   let resolveReady;
-  const readyPromise = new Promise((resolve) => {
-    resolveReady = resolve;
+  let rejectReady;
+  let readySettled = false;
+  const readyPromise = new Promise((resolve, reject) => {
+    resolveReady = (value) => {
+      readySettled = true;
+      resolve(value);
+    };
+    rejectReady = (err) => {
+      readySettled = true;
+      reject(err);
+    };
   });
+
+  // Nothing observes this promise until loadPattern awaits it. Attach a no-op
+  // handler so settling it rejected with no consumer does not raise an
+  // unhandled-rejection warning.
+  readyPromise.catch(() => {});
 
   /** @type {Map<string, number>} patternUrl -> markerId */
   const loaded = new Map();
@@ -97,12 +111,22 @@ export function createDetector(options = {}) {
 
     initInProgress = (async () => {
       try {
-        state = await createARToolKitState(
+        const created = await createARToolKitState(
           width,
           height,
           cameraParametersUrl,
           wasmUrl,
         );
+
+        // dispose() may have run while this was in flight. It saw state === null
+        // and freed nothing, and a second dispose() is a no-op, so committing
+        // this state would leak it.
+        if (disposed) {
+          disposeARToolKitState(created);
+          return false;
+        }
+
+        state = created;
         failCount = 0;
         failedUntil = 0;
         resolveReady(state);
@@ -112,6 +136,16 @@ export function createDetector(options = {}) {
         failCount = Math.min(failCount + 1, MAX_FAIL_COUNT);
         failedUntil =
           Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** failCount);
+
+        // Once retries have been exhausted, fail the waiters rather than
+        // leaving them on a promise that will never resolve.
+        if (failCount >= MAX_FAIL_COUNT && !readySettled) {
+          rejectReady(
+            new Error(
+              `ARToolKit initialisation failed ${failCount} times: ${err?.message || err}`,
+            ),
+          );
+        }
         return false;
       } finally {
         initInProgress = null;
@@ -128,16 +162,26 @@ export function createDetector(options = {}) {
    * without a second network fetch. Safe to call before {@link ensureReady} —
    * the load waits for state to exist rather than failing.
    *
+   * Rejects if the detector is disposed — either already, at the time of the
+   * call, or while this call was waiting on readiness — rather than reaching
+   * through to a freed state. Also rejects once the detector can never become
+   * ready, i.e. once {@link ensureReady} has exhausted its retries, instead of
+   * leaving the caller waiting on a promise that would never settle.
+   *
    * @param {string} patternUrl - URL of the .patt file
    * @param {number} [size=1] - Marker width in world units
    * @returns {Promise<number>} The marker ID assigned by ARToolKit
    */
   async function loadPattern(patternUrl, size = 1) {
+    if (disposed) throw new Error("Detector disposed");
     if (loaded.has(patternUrl)) return loaded.get(patternUrl);
     if (loading.has(patternUrl)) return loading.get(patternUrl);
 
     const pending = (async () => {
       const readyState = await readyPromise;
+      // readyPromise keeps handing out the state it resolved with, which
+      // dispose() may since have freed.
+      if (disposed) throw new Error("Detector disposed");
       const markerId = await loadPatternMarker(readyState, patternUrl);
       trackMarker(readyState, markerId, size);
       loaded.set(patternUrl, markerId);
@@ -176,13 +220,22 @@ export function createDetector(options = {}) {
    * Release the ARToolKit state and its WASM resources.
    *
    * Idempotent. After disposal {@link detect} returns empty results rather than
-   * throwing, so an in-flight frame cannot crash the worker.
+   * throwing, so an in-flight frame cannot crash the worker. Also fails any
+   * {@link loadPattern} call still waiting on readiness, so a caller blocked on
+   * a detector that will never initialise is not left hanging forever. A state
+   * that finishes initialising after this call is freed rather than kept, so
+   * it cannot leak.
    *
    * @returns {void}
    */
   function dispose() {
     if (disposed) return;
     disposed = true;
+    if (!readySettled) {
+      rejectReady(
+        new Error("Detector disposed before initialisation completed"),
+      );
+    }
     if (state) {
       disposeARToolKitState(state);
       state = null;
