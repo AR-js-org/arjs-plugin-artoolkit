@@ -46,8 +46,13 @@ describe("staleness guard", () => {
     const lost = vi.fn();
     core.eventBus.on("ar:markerLost", lost);
 
-    // No further frames: lostThreshold * frameDurationMs = 200ms
-    vi.advanceTimersByTime(400);
+    // Below the 200ms threshold (lostThreshold 2 x frameDurationMs 100): the
+    // sweep runs at 50, 100 and 150ms and must leave the marker alone.
+    vi.advanceTimersByTime(150);
+    expect(lost).not.toHaveBeenCalled();
+
+    // Past it: the tick at 250ms is the first where now - lastSeen exceeds 200.
+    vi.advanceTimersByTime(250);
 
     expect(lost).toHaveBeenCalledTimes(1);
     expect(lost.mock.calls[0][0]).toMatchObject({
@@ -89,6 +94,7 @@ describe("staleness guard", () => {
     }
 
     expect(lost).not.toHaveBeenCalled();
+    expect(plugin.getMarkerState(1, "pattern")).not.toBeNull();
 
     await plugin.disable();
   });
