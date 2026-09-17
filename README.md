@@ -16,6 +16,7 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 
 - [Features](#features-)
 - [Version](#version-)
+- [Upgrading to 0.2.0](#upgrading-to-020-)
 - [Installation](#installation-)
 - [Using the ESM build (recommended)](#using-the-esm-build-recommended-)
 - [Using source (development mode)](#using-source-development-mode-)
@@ -35,9 +36,9 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 
 - 🧠 Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
 - 🖼️ ImageBitmap support — zero-copy frame transfer for efficient camera frames
-- 🧩 ARToolKit integration — square pattern markers (patt files)
-- ⚡ Event-driven API — markerFound / markerUpdated / markerLost + raw getMarker events
-- 🔍 Confidence filtering — only forwards PATTERN_MARKER events above minConfidence
+- 🧩 ARToolKit integration — square pattern markers (patt files), powered by [artoolkit5-ts](https://github.com/AR-js-org/artoolkit5-ts)
+- ⚡ Event-driven API — `ar:markerFound` / `ar:markerUpdated` / `ar:markerLost` carrying `{ markerId, type, matrix, confidence, timestamp }`
+- 🔍 Confidence filtering — detections below `minConfidence` (default 0.6) are dropped before they reach any event listener
 
 <a id="version-"></a>
 
@@ -58,6 +59,93 @@ console.log("Instance version:", plugin.version);
 
 If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
 
+<a id="upgrading-to-020-"></a>
+
+## Upgrading to 0.2.0 🔄
+
+This release replaces the detection engine with
+[artoolkit5-ts](https://github.com/AR-js-org/artoolkit5-ts) 0.2.0. It is a
+breaking change.
+
+**`ar:getMarker` is removed.** It exposed artoolkit5-js internals — `idPatt`,
+`cfPatt`, `vertex` — that artoolkit5-ts does not produce. Use `ar:markerFound`,
+`ar:markerUpdated` and `ar:markerLost`, which carry the same pose information in
+a stable shape.
+
+**Event payloads are renamed.** `id` becomes `markerId` and `poseMatrix` becomes
+`matrix`, matching AR.js-next's documented contract. A new `type` field carries
+the marker family (`"pattern"` or `"barcode"`).
+
+```js
+// Before
+eventBus.on("ar:markerFound", ({ id, poseMatrix }) => {
+  /* … */
+});
+
+// After
+eventBus.on("ar:markerFound", ({ markerId, type, matrix }) => {
+  /* … */
+});
+```
+
+`arjs-plugin-threejs` already reads both spellings, so it keeps working without
+changes.
+
+**`corners` is no longer emitted.** The value shipped until now was malformed:
+artoolkit5-js reports `vertex` as four `[x, y]` pairs, and the plugin unpacked
+it as a flat array, producing two entries of two points each. No correct
+consumer can have depended on it. Proper corner data returns once artoolkit5-ts
+exposes `vertex` on `MarkerPose`.
+
+**`getMarkerState` takes the marker family.**
+
+```js
+plugin.getMarkerState(3, "pattern");
+```
+
+Pattern and barcode markers have independent ID registries — both start at 0 —
+so an ID alone does not identify a marker. The second argument defaults to
+`"pattern"`, so existing single-argument calls for pattern markers keep working
+unchanged.
+
+**`artoolkitModuleUrl` is renamed `wasmUrl`, and `wasmBaseUrl` is removed.**
+`wasmUrl` matches artoolkit5-ts's `createARToolKitState` and points directly at
+the `artoolkit5.wasm` binary, not at a JavaScript module or a base directory.
+`wasmBaseUrl` never configured anything after the migration — the detector
+takes one explicit file URL, not a base directory to resolve against — so it
+was deleted rather than left as a silent no-op.
+
+**`wasmUrl` is effectively required.** Vite's library build does not copy
+`artoolkit5.wasm` into `dist/`. Without `wasmUrl`, artoolkit5-ts falls back to
+the bare filename, which Emscripten then resolves relative to the worker
+chunk — where it 404s. That failure is caught and retried with backoff inside
+the detector rather than thrown, so **no `ar:workerError` fires.** The
+detector only gives up (and rejects its own readiness) after six consecutive
+failures, which takes far longer than ten seconds at its backoff schedule, so
+in practice `plugin.loadMarker()` always hits its own 10-second client-side
+timeout first. **The visible symptom is `loadMarker()` hanging for about ten
+seconds and then rejecting with `"loadMarker request timed out"`, with
+nothing else logged.** If you hit exactly that, you are almost certainly
+missing `wasmUrl`. See [Using the ESM build](#using-the-esm-build-recommended-)
+for how to point it at the binary, and [Troubleshooting](#troubleshooting-)
+for the full explanation.
+
+**Detection is browser-only.** It requires `Worker` and `OffscreenCanvas`. The
+`worker_threads` path is removed; it never functioned. `worker: false` still
+runs the plugin lifecycle under Node.
+
+**`minConfidence` is now a public constructor option.** It was previously
+hardcoded at 0.6 inside the worker and reachable only through a raw `init`
+message. The default is unchanged, so detection behaviour is the same unless
+you opt to change it.
+
+### Not yet supported
+
+Barcode (matrix code) markers and `configureDetector` options are supported by
+artoolkit5-ts 0.2.0 but not yet exposed here. `trackBarcode(barcodeId, size)` is
+the reserved entry point for barcode markers, which need no file load. Both are
+tracked as follow-up issues.
+
 <a id="installation-"></a>
 
 ## Installation 📦
@@ -71,9 +159,24 @@ npm install @ar-js-org/arjs-plugin-artoolkit
 
 ## Using the ESM build (recommended) 🚀
 
-When you import the built ESM bundle from `dist/`, the worker and ARToolKit are already bundled and referenced correctly. You do NOT need to pass `artoolkitModuleUrl`.
+When you import the built ESM bundle from `dist/`, the plugin's own JavaScript
+— including the worker chunk — is already bundled and referenced correctly.
+You don't need to configure anything for that part.
 
-Example:
+The ARToolKit **WASM binary is a separate story.** Vite's library build does
+not copy `artoolkit5.wasm` into `dist/`, so you must tell the plugin where to
+find it by passing `wasmUrl` — see
+[Upgrading to 0.2.0](#upgrading-to-020-) for why. The binary ships inside
+`@ar-js-org/artoolkit5-wasm`, a transitive dependency pulled in by
+`@ar-js-org/artoolkit5-ts`, so after `npm install` it already exists on disk
+at:
+
+```
+node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm
+```
+
+Serve that path (or copy the file into wherever you serve static assets and
+point `wasmUrl` there instead):
 
 ```html
 <script type="module">
@@ -84,6 +187,7 @@ Example:
   const plugin = new ArtoolkitPlugin({
     worker: true,
     cameraParametersUrl: '/path/to/camera_para.dat',
+    wasmUrl: '/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm',
     minConfidence: 0.6
   });
 
@@ -93,37 +197,48 @@ Example:
 </script>
 ```
 
+If `wasmUrl` is missing or unreachable, nothing fails where you'd expect it
+to — `loadMarker()` just hangs and times out. See
+[Troubleshooting](#troubleshooting-) for the exact symptom.
+
 Serving notes:
 
 - Serve from a web server so `/dist` assets resolve. The build is configured with `base: './'`, so the worker asset is referenced relative to the ESM file (e.g., `/dist/assets/worker-*.js`).
-- In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative).
+- In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative). Do the same for `artoolkit5.wasm`: it does not have to live under `node_modules` in production, as long as `wasmUrl` points at wherever it ends up.
 
 <a id="using-source-development-mode-"></a>
 
 ## Using source (development mode) 🛠️
 
-If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (for example a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Browser module loading issues may occur if the module is not properly served or is not an ES module.
+If you develop against `src/` (not the built `dist/`),
+`src/detector/artoolkit-detector.js` imports `@ar-js-org/artoolkit5-ts`
+directly as a bare module specifier. A plain static file server does not know
+how to resolve that; use a dev server that resolves bare specifiers from
+`node_modules` (Vite's own dev server does this natively), or serve an import
+map that points `@ar-js-org/artoolkit5-ts` at a reachable copy.
+
+`wasmUrl` is required here too, exactly as with the `dist/` build (see
+[Upgrading to 0.2.0](#upgrading-to-020-)) — pass it directly, since nothing
+bundles the binary for you:
 
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl:
-    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js", // provide when using src/
   cameraParametersUrl: "/path/to/camera_para.dat",
-  wasmBaseUrl: "/node_modules/@ar-js-org/artoolkit5-js/dist/", // optional; if your build requires it
+  wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
   minConfidence: 0.6,
 });
 console.log("Plugin version:", plugin.version);
 ```
 
-CDN fallback (for source/dev):
-
-- Set `artoolkitModuleUrl` to a CDN ESM endpoint (e.g., jsDelivr/UNPKG) for `@ar-js-org/artoolkit5-js`.
-
 Notes:
 
 - The previous loader.js and manual WASM placement flow is no longer used.
-- In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
+- There is no longer a configurable URL for the ARToolKit _library_
+  JavaScript — the two options that used to serve that purpose were removed
+  in 0.2.0 (see [Upgrading to 0.2.0](#upgrading-to-020-)). `wasmUrl` is the
+  only remaining runtime-configurable path, and it points at the WASM binary,
+  not at a module.
 
 <a id="usage-"></a>
 
@@ -155,7 +270,11 @@ const eventBus = {
 };
 const engine = { eventBus };
 
-const plugin = new ArtoolkitPlugin({ worker: true, minConfidence: 0.6 });
+const plugin = new ArtoolkitPlugin({
+  worker: true,
+  wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
+  minConfidence: 0.6,
+});
 await plugin.init(engine);
 await plugin.enable();
 console.log("Version:", plugin.version);
@@ -163,9 +282,11 @@ console.log("Version:", plugin.version);
 // Load a marker (size is world units)
 await plugin.loadMarker("/examples/simple-marker/data/patt.hiro", 1);
 
-eventBus.on("ar:markerFound", (m) => console.log("FOUND", m.id));
-eventBus.on("ar:markerUpdated", (m) => console.log("UPDATED", m.id));
-eventBus.on("ar:markerLost", (m) => console.log("LOST", m.id));
+eventBus.on("ar:markerFound", (m) => console.log("FOUND", m.type, m.markerId));
+eventBus.on("ar:markerUpdated", (m) =>
+  console.log("UPDATED", m.type, m.markerId),
+);
+eventBus.on("ar:markerLost", (m) => console.log("LOST", m.type, m.markerId));
 ```
 
 <a id="register-and-enable-"></a>
@@ -179,7 +300,7 @@ const plugin = new ArtoolkitPlugin({
   worker: true,
   lostThreshold: 5, // frames before a marker is considered lost
   frameDurationMs: 100, // expected ms per frame (affects lost timing)
-  // artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // Only for src/dev
+  wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
   cameraParametersUrl: "/data/camera_para.dat",
   minConfidence: 0.6,
 });
@@ -194,12 +315,28 @@ await engine.pluginManager.enable("artoolkit");
 
 The plugin emits the following events on your engine’s event bus:
 
+| Event              | Payload                                             |
+| ------------------ | --------------------------------------------------- |
+| `ar:markerFound`   | `{ markerId, type, matrix, confidence, timestamp }` |
+| `ar:markerUpdated` | `{ markerId, type, matrix, confidence, timestamp }` |
+| `ar:markerLost`    | `{ markerId, type, timestamp }`                     |
+| `ar:workerReady`   | `{}`                                                |
+| `ar:workerError`   | `{ message }`                                       |
+
+`matrix` is a `Float32Array(16)`, 4x4 column-major right-handed — ready for
+WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
+`"pattern"` or `"barcode"` (only pattern markers are reachable today; see
+[Upgrading to 0.2.0](#upgrading-to-020-)). A marker's real identity is the pair
+`type:markerId`, not `markerId` alone — pattern and barcode markers keep
+independent ID registries, so a barcode marker and a pattern marker can both
+report `markerId: 0` while being two different markers.
+
 ```js
 // Marker first detected
 engine.eventBus.on(
   "ar:markerFound",
-  ({ id, poseMatrix, confidence, corners }) => {
-    // poseMatrix is Float32Array(16)
+  ({ markerId, type, matrix, confidence, timestamp }) => {
+    // matrix is Float32Array(16)
   },
 );
 
@@ -209,16 +346,11 @@ engine.eventBus.on("ar:markerUpdated", (data) => {
 });
 
 // Marker lost
-engine.eventBus.on("ar:markerLost", ({ id }) => {});
+engine.eventBus.on("ar:markerLost", ({ markerId, type, timestamp }) => {});
 
 // Worker lifecycle
 engine.eventBus.on("ar:workerReady", () => {});
 engine.eventBus.on("ar:workerError", (error) => {});
-
-// Raw ARToolKit getMarker (filtered: PATTERN_MARKER only, above minConfidence)
-engine.eventBus.on("ar:getMarker", (payload) => {
-  // payload = { type, matrix: number[16], marker: { idPatt, cfPatt, idMatrix?, cfMatrix?, vertex? } }
-});
 ```
 
 <a id="sending-frames-"></a>
@@ -275,8 +407,8 @@ The example demonstrates:
 
 - Webcam capture with getUserMedia
 - ImageBitmap creation and frame submission
-- Event handling and console output
-- Raw `ar:getMarker` payloads for debugging
+- Loading and tracking two pattern markers from a single plugin instance
+- Event handling and console output for `ar:markerFound` / `ar:markerUpdated` / `ar:markerLost`
 
 <a id="api-reference-"></a>
 
@@ -292,10 +424,9 @@ The example demonstrates:
   lostThreshold?: number;      // Frames before 'lost' (default: 5)
   frameDurationMs?: number;    // ms per frame used with lostThreshold (default: 200)
   sweepIntervalMs?: number;    // Lost-sweep interval (default: 100)
-  artoolkitModuleUrl?: string; // Only needed when using source/dev; not needed for dist build
   cameraParametersUrl?: string;// Camera params file URL (required unless you rely on a remote default)
-  wasmBaseUrl?: string;        // Base URL for ARToolKit assets (optional)
-  minConfidence?: number;      // Minimum confidence to forward getMarker (default: 0.6)
+  wasmUrl?: string;            // URL of the artoolkit5.wasm binary — effectively required, see Troubleshooting
+  minConfidence?: number;      // Drop detections below this confidence, 0-1 (default: 0.6)
 }
 ```
 
@@ -307,24 +438,45 @@ The example demonstrates:
 - `async enable()` — start worker and subscribe to frames
 - `async disable()` — stop worker and timers
 - `dispose()` — alias for disable
-- `getMarkerState(markerId)` — current tracked state
+- `getMarkerState(markerId, type = 'pattern')` — current tracked state for that marker
 - `async loadMarker(patternUrl: string, size = 1)` — load and track a pattern
 
 <a id="troubleshooting-"></a>
 
 ## Troubleshooting 🧰
 
+- **`loadMarker()` hangs for about ten seconds, then rejects with
+  `"loadMarker request timed out"` — with no `ar:workerError` and nothing
+  else logged:**
+  - This is almost always a missing or unreachable `wasmUrl`, not a bug in
+    your code.
+  - Without `wasmUrl`, artoolkit5-ts resolves the WASM binary as a bare
+    filename relative to the worker chunk. Vite's library build does not copy
+    `artoolkit5.wasm` into `dist/`, so that lookup 404s.
+  - That failure is caught and retried with backoff inside the detector
+    rather than thrown, so it never reaches the worker's top-level error
+    handler and no `ar:workerError` fires. The detector only gives up (and
+    rejects its readiness) after six consecutive failures, which takes far
+    longer than ten seconds at its backoff schedule — so in practice
+    `plugin.loadMarker()` always hits its own 10-second client-side timeout
+    first. The visible symptom is a silent hang, not a visible error.
+  - Fix: pass `wasmUrl` pointing at the binary —
+    `node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm` after
+    `npm install`, served however you serve the rest of your static assets.
+    See [Using the ESM build](#using-the-esm-build-recommended-).
 - Worker asset 404:
   - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.es.js` and that `/dist/assets/worker-*.js` is served.
   - The build uses `base: './'`, so worker URLs are relative to the ESM file location.
-- “Failed to resolve module specifier” in the Worker (source/dev only):
-  - Provide `artoolkitModuleUrl` or serve `/node_modules` from your dev server
+- “Failed to resolve module specifier” for `@ar-js-org/artoolkit5-ts` (source/dev only):
+  - `src/detector/artoolkit-detector.js` imports `@ar-js-org/artoolkit5-ts` as
+    a bare specifier. Use a dev server that resolves bare specifiers from
+    `node_modules` (Vite's dev server does this natively), or serve an import
+    map.
 - Worker not starting:
   - Serve via HTTP/HTTPS; ensure ES modules and Workers are supported
 - No detections:
   - Confirm camera started, correct marker pattern, sufficient lighting
   - Adjust `minConfidence` to reduce/raise filtering
-
   - Check `plugin.version` (if 'unknown', ensure build-time define is configured)
 
 ## Build & Publishing Notes
@@ -333,6 +485,10 @@ The example demonstrates:
   - See `.gitignore` and `.npmignore` for details.
 - When installing the package from npm (`npm install @ar-js-org/arjs-plugin-artoolkit`), all required built files are included and ready to use.
   - If you install from source (e.g., cloning the repository), you must run the build manually: `npm run build`.
+  - This does not include the ARToolKit WASM binary: `dist/` never contains
+    `artoolkit5.wasm`. It ships inside the `@ar-js-org/artoolkit5-wasm`
+    dependency instead, and you must point `wasmUrl` at it yourself — see
+    [Using the ESM build](#using-the-esm-build-recommended-).
 
 ### Releases and Built Artifacts
 
@@ -346,5 +502,3 @@ The example demonstrates:
   `https://cdn.jsdelivr.net/npm/@ar-js-org/arjs-plugin-artoolkit@1.2.3/dist/arjs-plugin-artoolkit.es.js`
 
 - Note: jsDelivr serves files from npm or from the repository tree at a tag/branch. Because `dist/` and `types/` are not committed to the repo, the npm package must contain the built files for jsDelivr to serve them.
-
-If you want me to add publish instructions or a small note showing how to use the Release assets or jsDelivr URLs in your project, I can add examples.
