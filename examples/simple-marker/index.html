@@ -58,14 +58,16 @@
   <body>
     <h1>Simple Marker Example</h1>
     <p>
-      This example demonstrates loading a pattern marker using the ARToolKit
-      plugin.
+      This example demonstrates loading two pattern markers (hiro and kanji)
+      from a single ARToolKit plugin instance. Each gets its own marker ID, and
+      every event logged below shows both <code>type</code> and
+      <code>markerId</code> so you can tell markers apart.
     </p>
 
     <div id="status" class="status">Initializing...</div>
     <div>
       <button id="startCamBtn">Start Camera</button>
-      <button id="loadMarkerBtn" disabled>Load Marker</button>
+      <button id="loadMarkerBtn" disabled>Load Markers</button>
     </div>
 
     <h3>Event Log:</h3>
@@ -132,7 +134,7 @@
           eventBus.on("ar:workerReady", () => {
             log("Worker ready");
             setStatus(
-              "Worker ready. Start camera and then load marker.",
+              "Worker ready. Start camera and then load markers.",
               "success",
             );
             loadMarkerBtn.disabled = false;
@@ -141,17 +143,14 @@
             log(`workerError: ${JSON.stringify(e)}`);
             setStatus("Worker error (see console)", "error");
           });
-          eventBus.on("ar:getMarker", (e) =>
-            console.log("[example] ar:getMarker", e),
+          eventBus.on("ar:markerFound", (e) =>
+            log(`FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)}`),
           );
-          eventBus.on("ar:markerFound", (d) =>
-            log(`markerFound: ${JSON.stringify(d)}`),
+          eventBus.on("ar:markerUpdated", (e) =>
+            log(`UPDATED ${e.type}:${e.markerId}`),
           );
-          eventBus.on("ar:markerUpdated", (d) =>
-            log(`markerUpdated: ${JSON.stringify(d)}`),
-          );
-          eventBus.on("ar:markerLost", (d) =>
-            log(`markerLost: ${JSON.stringify(d)}`),
+          eventBus.on("ar:markerLost", (e) =>
+            log(`LOST ${e.type}:${e.markerId}`),
           );
 
           await plugin.init(core);
@@ -161,7 +160,7 @@
           if (plugin.workerReady) {
             log("Worker was already ready (post-enable).");
             setStatus(
-              "Worker ready. Start camera and then load marker.",
+              "Worker ready. Start camera and then load markers.",
               "success",
             );
             loadMarkerBtn.disabled = false;
@@ -204,7 +203,7 @@
           }
           requestAnimationFrame(tick);
           log("Camera started.");
-          setStatus("Camera started. You can now load the marker.", "success");
+          setStatus("Camera started. You can now load the markers.", "success");
         } catch (err) {
           log("Camera error: " + (err && err.message ? err.message : err));
           setStatus("Camera error", "error");
@@ -215,13 +214,24 @@
       loadMarkerBtn.addEventListener("click", async () => {
         if (!plugin) return log("Plugin not ready");
         loadMarkerBtn.disabled = true;
-        setStatus("Loading marker…", "normal");
+        setStatus("Loading markers…", "normal");
         try {
-          const patternUrl = "/examples/simple-marker/data/patt.hiro";
-          log(`Requesting loadMarker for ${patternUrl}`);
-          const res = await plugin.loadMarker(patternUrl, 1);
-          log(`loadMarker result: ${JSON.stringify(res)}`);
-          setStatus(`Marker loaded (id=${res.markerId})`, "success");
+          const patterns = [
+            { url: "/examples/simple-marker/data/patt.hiro", label: "hiro" },
+            { url: "/examples/simple-marker/data/patt.kanji", label: "kanji" },
+          ];
+
+          const loaded = [];
+          for (const { url, label } of patterns) {
+            log(`Requesting loadMarker for ${label}`);
+            const res = await plugin.loadMarker(url, 1);
+            log(`${label} loaded: ${JSON.stringify(res)}`);
+            loaded.push(`${label}=${res.markerId}`);
+          }
+          setStatus(
+            `Markers loaded (${loaded.join(", ")}). Show either to the camera.`,
+            "success",
+          );
         } catch (err) {
           log("loadMarker failed: " + (err && err.message ? err.message : err));
           setStatus("Failed to load marker", "error");
