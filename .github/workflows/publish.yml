@@ -3,16 +3,16 @@ name: Publish to npm
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name to publish (optional)'
+        description: "Tag name to publish (optional)"
         required: false
       publish:
         description: 'Set to "true" to actually publish on manual dispatch (default: false)'
         required: false
-        default: 'false'
+        default: "false"
 
 jobs:
   publish:
@@ -27,8 +27,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Determine tag
         id: tag
