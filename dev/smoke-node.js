@@ -34,7 +34,8 @@ const eventBus = {
 const core = { eventBus };
 
 async function run() {
-  // Use worker:false for Node environment; worker path depends on browser globals (self, ImageBitmap).
+  // worker:false in Node: detection is browser-only (needs Worker and
+  // OffscreenCanvas). This exercises the plugin lifecycle only.
   const plugin = new ArtoolkitPlugin({ worker: false });
   await plugin.init(core);
   await plugin.enable();
