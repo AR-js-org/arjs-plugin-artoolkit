@@ -30,6 +30,7 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 - [Troubleshooting](#troubleshooting-)
 
 <a id="features-"></a>
+
 ## Features ✨🧭
 
 - 🧠 Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
@@ -39,6 +40,7 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 - 🔍 Confidence filtering — only forwards PATTERN_MARKER events above minConfidence
 
 <a id="version-"></a>
+
 ## Version 🏷️
 
 The plugin exposes its build-time version both as a constant and on each instance:
@@ -57,6 +59,7 @@ console.log("Instance version:", plugin.version);
 If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
 
 <a id="installation-"></a>
+
 ## Installation 📦
 
 ```bash
@@ -65,6 +68,7 @@ npm install @ar-js-org/arjs-plugin-artoolkit
 ```
 
 <a id="using-the-esm-build-recommended-"></a>
+
 ## Using the ESM build (recommended) 🚀
 
 When you import the built ESM bundle from `dist/`, the worker and ARToolKit are already bundled and referenced correctly. You do NOT need to pass `artoolkitModuleUrl`.
@@ -95,6 +99,7 @@ Serving notes:
 - In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative).
 
 <a id="using-source-development-mode-"></a>
+
 ## Using source (development mode) 🛠️
 
 If you develop against `src/` (not the built `dist/`), the worker will attempt to dynamically import ARToolKit. In that case, you must provide a valid `artoolkitModuleUrl` (for example a direct path to the UMD or ESM build) or ensure your dev server can resolve `@ar-js-org/artoolkit5-js` as an ES module. Browser module loading issues may occur if the module is not properly served or is not an ES module.
@@ -102,12 +107,13 @@ If you develop against `src/` (not the built `dist/`), the worker will attempt t
 ```js
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  artoolkitModuleUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js', // provide when using src/
-  cameraParametersUrl: '/path/to/camera_para.dat',
-  wasmBaseUrl: '/node_modules/@ar-js-org/artoolkit5-js/dist/', // optional; if your build requires it
+  artoolkitModuleUrl:
+    "/node_modules/@ar-js-org/artoolkit5-js/dist/ARToolkit.js", // provide when using src/
+  cameraParametersUrl: "/path/to/camera_para.dat",
+  wasmBaseUrl: "/node_modules/@ar-js-org/artoolkit5-js/dist/", // optional; if your build requires it
   minConfidence: 0.6,
 });
-console.log('Plugin version:', plugin.version);
+console.log("Plugin version:", plugin.version);
 ```
 
 CDN fallback (for source/dev):
@@ -120,9 +126,11 @@ Notes:
 - In the `dist/` build, ARToolKit is bundled and `artoolkitModuleUrl` is NOT needed.
 
 <a id="usage-"></a>
+
 ## Usage 🧩
 
 <a id="quick-start-copy-paste-"></a>
+
 ### Quick Start (copy-paste) ⚡
 
 ```js
@@ -161,6 +169,7 @@ eventBus.on("ar:markerLost", (m) => console.log("LOST", m.id));
 ```
 
 <a id="register-and-enable-"></a>
+
 ### Register and enable ✅
 
 ```js
@@ -180,6 +189,7 @@ await engine.pluginManager.enable("artoolkit");
 ```
 
 <a id="events-"></a>
+
 ### Events 🔔
 
 The plugin emits the following events on your engine’s event bus:
@@ -212,6 +222,7 @@ engine.eventBus.on("ar:getMarker", (payload) => {
 ```
 
 <a id="sending-frames-"></a>
+
 ### Sending frames 🎞️
 
 ```js
@@ -231,6 +242,7 @@ engine.eventBus.emit("engine:update", {
 ```
 
 <a id="loading-a-pattern-marker-"></a>
+
 ### Loading a pattern marker 📐
 
 ```js
@@ -241,6 +253,7 @@ const { markerId, size } = await plugin.loadMarker(
 ```
 
 <a id="examples-"></a>
+
 ## Examples 🧪
 
 A complete webcam-based example is available under `examples/simple-marker/`.
@@ -266,9 +279,11 @@ The example demonstrates:
 - Raw `ar:getMarker` payloads for debugging
 
 <a id="api-reference-"></a>
+
 ## API Reference 📚
 
 <a id="arplugin-options-"></a>
+
 ### ArtoolkitPlugin options 🧭
 
 ```text
@@ -285,6 +300,7 @@ The example demonstrates:
 ```
 
 <a id="methods-"></a>
+
 ### Methods 🛠️
 
 - `async init(core)` — initialize with engine core
@@ -295,6 +311,7 @@ The example demonstrates:
 - `async loadMarker(patternUrl: string, size = 1)` — load and track a pattern
 
 <a id="troubleshooting-"></a>
+
 ## Troubleshooting 🧰
 
 - Worker asset 404:
