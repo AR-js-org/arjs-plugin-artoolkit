@@ -131,4 +131,42 @@ describe("marker families are tracked independently", () => {
 
     await plugin.disable();
   });
+
+  it("treats pattern 0 and barcode 0 as different markers", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    await plugin.enable();
+
+    const found = vi.fn();
+    core.eventBus.on("ar:markerFound", found);
+
+    // @ts-ignore
+    plugin._onWorkerMessage(
+      detectionResult([
+        {
+          id: 0,
+          type: "pattern",
+          confidence: 0.9,
+          matrixGL: new Float32Array(16),
+        },
+        {
+          id: 0,
+          type: "barcode",
+          confidence: 0.8,
+          matrixGL: new Float32Array(16),
+        },
+      ]),
+    );
+
+    expect(found).toHaveBeenCalledTimes(2);
+    expect(found.mock.calls[0][0].markerId).toBe(0);
+    expect(found.mock.calls[1][0].markerId).toBe(0);
+    expect(found.mock.calls[0][0].type).toBe("pattern");
+    expect(found.mock.calls[1][0].type).toBe("barcode");
+
+    expect(plugin.getMarkerState(0, "pattern")).not.toBeNull();
+    expect(plugin.getMarkerState(0, "barcode")).not.toBeNull();
+
+    await plugin.disable();
+  });
 });
