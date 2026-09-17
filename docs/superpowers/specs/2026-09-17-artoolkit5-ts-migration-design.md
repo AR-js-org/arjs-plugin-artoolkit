@@ -215,6 +215,20 @@ Fix: the `init` message carries the real frame dimensions, and state creation is
 deferred until dimensions are known. `loadMarker` awaits readiness rather than
 forcing initialisation at a guessed size.
 
+### Post-implementation note
+
+The `init`-carries-dimensions half of this fix turned out to be
+unimplementable: at `_startWorker()` time (`src/plugin.js`) no frame has
+arrived yet, so there are no real dimensions to send, and the plugin exposes
+no `width`/`height` option to manufacture them from. The half that shipped is
+the deferral — the detector is constructed on `init` but stays dimension-less
+until the first `processFrame` message, which is when real dimensions become
+known and `createARToolKitState` fixes them permanently. That alone fixes the
+wrong-intrinsics bug this section describes, since `loadMarker()` only awaits
+readiness rather than forcing initialisation at a guessed size. `AGENTS.md`'s
+worker-protocol table was corrected to drop `width, height` from `init`'s
+payload and documents the frame-triggered initialisation instead.
+
 ## Examples
 
 `examples/simple-marker/` is upgraded to load two pattern markers (`patt.hiro`

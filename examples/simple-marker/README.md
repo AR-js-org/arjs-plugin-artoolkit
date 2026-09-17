@@ -185,31 +185,23 @@ console.log(`kanji loaded with ID: ${kanji.markerId}`);
 
 **`loadMarker()` hangs for ~10 seconds and then rejects with "loadMarker request timed out", with no `ar:workerError` logged first?**
 
-This is the symptom of a missing or unreachable `wasmUrl` — not a code bug.
+This symptom has two distinct causes that produce an identical hang — see the
+[root README's Troubleshooting section](../../README.md#troubleshooting-) for
+the full explanation of both. If fixing one doesn't help, check the other.
 
-- Vite's library build does not copy the WASM binary into `dist/`. Without
-  an explicit `wasmUrl`, artoolkit5-ts resolves the bare filename relative
-  to the worker chunk instead (`/dist/assets/worker-*.js`), where it does
-  not exist, and WASM compilation fails inside the worker with something
-  like:
-  ```
-  wasm streaming compile failed: TypeError: Failed to execute 'compile' on
-  'WebAssembly': HTTP status code is not ok
-  failed to asynchronously prepare wasm: both async and sync fetching of
-  the wasm failed
-  ```
-- That failure is caught and retried with backoff inside the detector
-  rather than thrown, so it never reaches the worker's top-level error
-  handler and no `ar:workerError` fires. The detector only gives up (and
-  rejects its readiness) after six consecutive failures, which takes far
-  longer than ten seconds at its backoff schedule, so in practice
-  `plugin.loadMarker()` always hits its own 10-second client-side timeout
-  first. The visible symptom is a silent hang, not a visible error.
-- Fix: pass `wasmUrl` pointing at the installed package's binary. This
-  example passes
-  `/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm`, which
-  only resolves because the repository root is being served (see "Serve
-  the Example" above).
+- **Cause 2 is the likely one in this example:** `loadMarker()` was called
+  before any frame was processed. Detector initialisation is
+  frame-triggered, not `enable()`-triggered, so the worker only creates its
+  ARToolKit state once it has handled a first `processFrame`. This example's
+  “Load Markers” button is enabled as soon as `ar:workerReady` fires — before
+  any camera frame exists — not once a frame has actually been sent, so it is
+  easy to click it too early despite the status text's advice. Click “Start
+  Camera” first and give it a moment before “Load Markers”.
+- **Cause 1, missing or unreachable `wasmUrl`, is less likely here:** this
+  example already passes `wasmUrl` explicitly (see [Module
+  resolution](#module-resolution) above), so re-checking it first will
+  usually be a dead end. Revisit it only if you've changed that value or are
+  serving from somewhere other than the repository root.
 
 ## Browser Support
 

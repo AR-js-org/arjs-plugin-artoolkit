@@ -71,8 +71,13 @@ describe("ArtoolkitPlugin (more coverage)", () => {
       height: 2,
     });
 
-    // Fallback tries a second post without ImageBitmap, so we expect at least one call
-    expect(postMessage).toHaveBeenCalled();
+    // The first call sends the ImageBitmap payload and throws; the catch
+    // block's fallback sends a second, lighter payload without ImageBitmap.
+    // That fallback call also throws here (the stub throws unconditionally),
+    // but that second throw is itself caught and swallowed. Pinning the call
+    // count to 2 confirms the fallback attempt actually happens, not just
+    // that postMessage was called at all.
+    expect(postMessage).toHaveBeenCalledTimes(2);
   });
 
   it("getMarkerState returns null when marker not tracked", async () => {
