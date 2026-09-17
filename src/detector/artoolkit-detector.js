@@ -237,10 +237,20 @@ export function createDetector(options = {}) {
     if (!state || disposed) return { detected: [], lost: [] };
 
     const result = processFrame(state, pixels);
-    const detected =
+    const filtered =
       minConfidence > 0
         ? result.detected.filter((pose) => pose.confidence >= minConfidence)
         : result.detected;
+
+    // The native 3x4 Float64Array pose is deliberately not forwarded: nothing
+    // downstream reads it, and it costs 96 bytes per marker per frame across
+    // the worker boundary.
+    const detected = filtered.map(({ id, type, confidence, matrixGL }) => ({
+      id,
+      type,
+      confidence,
+      matrixGL,
+    }));
 
     return { detected, lost: result.lost };
   }

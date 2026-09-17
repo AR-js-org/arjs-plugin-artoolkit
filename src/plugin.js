@@ -161,7 +161,9 @@ export class ArtoolkitPlugin {
    * Disable the plugin and stop marker detection.
    *
    * - Unsubscribes from engine:update events
-   * - Stops and terminates the detection worker
+   * - Asks the detection worker to shut down (see {@link _stopWorker});
+   *   actual termination is deferred by one macrotask, so it has not
+   *   necessarily happened yet by the time this resolves
    * - Clears the marker sweep interval
    *
    * @returns {Promise<ArtoolkitPlugin>} This plugin instance

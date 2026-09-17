@@ -66,11 +66,9 @@ self.addEventListener("message", async (ev) => {
         });
       }
 
-      // Dimensions are optional here; the first frame supplies them otherwise.
-      if (payload?.width && payload?.height) {
-        await detector.ensureReady(payload.width, payload.height);
-      }
-
+      // No dimensions are sent here, and none exist yet at this point in the
+      // lifecycle. The detector becomes ready from `processFrame` below, once
+      // a real frame supplies real dimensions for `createARToolKitState`.
       if (!hasAnnouncedReady) {
         sendMessage({ type: "ready" });
         hasAnnouncedReady = true;

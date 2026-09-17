@@ -72,16 +72,20 @@ describe("artoolkit-detector", () => {
     expect(mocks.loadPatternMarker).toHaveBeenCalledTimes(1);
   });
 
-  it("passes detected and lost markers through", async () => {
+  it("passes detected and lost markers through, projecting out the native matrix pose", async () => {
     const detector = createDetector({
       cameraParametersUrl: "/camera_para.dat",
     });
     await detector.ensureReady(640, 480);
+    const matrixGL = new Float32Array(16);
     const pose = {
       id: 3,
       type: "pattern",
       confidence: 0.9,
-      matrixGL: new Float32Array(16),
+      // The native 3x4 Float64Array pose real artoolkit5-ts returns. It must
+      // not survive into the projected result below.
+      matrix: new Float64Array(12),
+      matrixGL,
     };
     mocks.processFrame.mockReturnValue({
       detected: [pose],
@@ -91,7 +95,10 @@ describe("artoolkit-detector", () => {
     const pixels = new Uint8ClampedArray(4);
     const result = detector.detect(pixels);
 
-    expect(result.detected).toEqual([pose]);
+    expect(result.detected).toEqual([
+      { id: 3, type: "pattern", confidence: 0.9, matrixGL },
+    ]);
+    expect(result.detected[0]).not.toHaveProperty("matrix");
     expect(result.lost).toEqual([{ id: 4, type: "barcode" }]);
   });
 

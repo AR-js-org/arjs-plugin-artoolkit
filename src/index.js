@@ -1,8 +1,9 @@
 /**
  * @fileoverview ARToolKit Plugin for AR.js - Main entry point
  *
- * Exports the core ArtoolkitPlugin class for marker-based AR tracking
- * and utility functions for coordinate system transformations.
+ * Exports the core ArtoolkitPlugin class for marker-based AR tracking, the
+ * build-time version constant, and a deprecated pose-matrix helper kept only
+ * for backward compatibility (see `convertModelViewToThreeMatrix` below).
  *
  * @module arjs-plugin-artoolkit
  */

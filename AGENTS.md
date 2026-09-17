@@ -49,21 +49,27 @@ message-passing concerns belong in the worker.
 
 ## Worker message protocol
 
-| Direction     | Message            | Payload                                                          |
-| ------------- | ------------------ | ---------------------------------------------------------------- |
-| main → worker | `init`             | `{ cameraParametersUrl, wasmUrl, width, height, minConfidence }` |
-| main → worker | `loadMarker`       | `{ patternUrl, size, requestId }`                                |
-| main → worker | `processFrame`     | `{ frameId, imageBitmap, width, height }`                        |
-| main → worker | `dispose`          | none                                                             |
-| worker → main | `ready`            | none                                                             |
-| worker → main | `loadMarkerResult` | `{ ok, markerId, size, requestId, error }`                       |
-| worker → main | `detectionResult`  | `{ frameId, detected, lost }`                                    |
-| worker → main | `error`            | `{ message }`                                                    |
+| Direction     | Message            | Payload                                           |
+| ------------- | ------------------ | ------------------------------------------------- |
+| main → worker | `init`             | `{ cameraParametersUrl, wasmUrl, minConfidence }` |
+| main → worker | `loadMarker`       | `{ patternUrl, size, requestId }`                 |
+| main → worker | `processFrame`     | `{ frameId, imageBitmap, width, height }`         |
+| main → worker | `dispose`          | none                                              |
+| worker → main | `ready`            | none                                              |
+| worker → main | `loadMarkerResult` | `{ ok, markerId, size, requestId, error }`        |
+| worker → main | `detectionResult`  | `{ frameId, detected, lost }`                     |
+| worker → main | `error`            | `{ message }`                                     |
 
 `detected` entries are `{ id, type, confidence, matrixGL }`; `lost` entries are
 `{ id, type }`. These use `id` rather than `markerId` because they mirror
 artoolkit5-ts's `MarkerPose` shape directly; the rename to `markerId` happens at
 the event boundary in `plugin.js`.
+
+`init` carries no frame dimensions: none exist yet at `_startWorker()` time.
+The detector is constructed on `init` but stays dimension-less until the
+first `processFrame` message, which is when real dimensions become known and
+`createARToolKitState` can fix them permanently. This is why `loadMarker()`
+must be called only after at least one frame has reached the worker.
 
 ## Event contract
 
@@ -111,7 +117,10 @@ tested.
 `@ar-js-org/artoolkit5-ts` provides detection. It is data-oriented: plain
 `ARToolKitState`, pure functions, no classes, no DOM, no event emitter. The
 functions used here are `createARToolKitState`, `disposeARToolKitState`,
-`loadPatternMarker`, `trackMarker`, `trackBarcodeMarker` and `processFrame`.
+`loadPatternMarker`, `trackMarker` and `processFrame`. `trackBarcodeMarker`
+exists in the library but is reserved for the barcode follow-up (see
+Non-goals in the migration spec) — it is not imported anywhere in this
+plugin.
 
 ## Commits
 
