@@ -279,8 +279,12 @@ await plugin.init(engine);
 await plugin.enable();
 console.log("Version:", plugin.version);
 
-// Load a marker (size is world units)
-await plugin.loadMarker("/examples/simple-marker/data/patt.hiro", 1);
+// Marker loading waits for the detector, and the detector only initialises
+// once it has seen a frame — it needs the real frame dimensions, which are
+// fixed permanently at initialisation. Make sure your capture source is
+// running and emitting `engine:update` (see Sending frames below) before
+// you get here, or this call hangs until it times out.
+await plugin.loadMarker("/examples/simple-marker/data/patt.hiro", 1); // size is world units
 
 eventBus.on("ar:markerFound", (m) => console.log("FOUND", m.type, m.markerId));
 eventBus.on("ar:markerUpdated", (m) =>
@@ -448,22 +452,37 @@ The example demonstrates:
 - **`loadMarker()` hangs for about ten seconds, then rejects with
   `"loadMarker request timed out"` — with no `ar:workerError` and nothing
   else logged:**
-  - This is almost always a missing or unreachable `wasmUrl`, not a bug in
-    your code.
-  - Without `wasmUrl`, artoolkit5-ts resolves the WASM binary as a bare
-    filename relative to the worker chunk. Vite's library build does not copy
-    `artoolkit5.wasm` into `dist/`, so that lookup 404s.
-  - That failure is caught and retried with backoff inside the detector
-    rather than thrown, so it never reaches the worker's top-level error
-    handler and no `ar:workerError` fires. The detector only gives up (and
-    rejects its readiness) after six consecutive failures, which takes far
-    longer than ten seconds at its backoff schedule — so in practice
-    `plugin.loadMarker()` always hits its own 10-second client-side timeout
-    first. The visible symptom is a silent hang, not a visible error.
-  - Fix: pass `wasmUrl` pointing at the binary —
-    `node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm` after
-    `npm install`, served however you serve the rest of your static assets.
-    See [Using the ESM build](#using-the-esm-build-recommended-).
+
+  This symptom has two distinct causes. Both produce the identical hang, so
+  if fixing one doesn't help, check the other.
+  - **Cause 1: missing or unreachable `wasmUrl`.**
+    - Without `wasmUrl`, artoolkit5-ts resolves the WASM binary as a bare
+      filename relative to the worker chunk. Vite's library build does not
+      copy `artoolkit5.wasm` into `dist/`, so that lookup 404s.
+    - That failure is caught and retried with backoff inside the detector
+      rather than thrown, so it never reaches the worker's top-level error
+      handler and no `ar:workerError` fires. The detector only gives up (and
+      rejects its readiness) after six consecutive failures, which takes far
+      longer than ten seconds at its backoff schedule — so in practice
+      `plugin.loadMarker()` always hits its own 10-second client-side
+      timeout first. The visible symptom is a silent hang, not a visible
+      error.
+    - Fix: pass `wasmUrl` pointing at the binary —
+      `node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm` after
+      `npm install`, served however you serve the rest of your static
+      assets. See [Using the ESM build](#using-the-esm-build-recommended-).
+  - **Cause 2: `loadMarker()` was called before any frame was processed.**
+    - Detector initialisation is frame-triggered, not `enable()`-triggered:
+      it needs real frame dimensions, which are fixed permanently once set,
+      so the worker only creates the ARToolKit state when it handles its
+      first `processFrame` message. `loadMarker()` never triggers that
+      itself — it just waits for the detector to become ready, however that
+      happens.
+    - Fix: make sure your capture source is running and sending
+      `engine:update` frames — see [Sending frames](#sending-frames-) — and
+      that at least one has reached the worker before calling
+      `loadMarker()`.
+
 - Worker asset 404:
   - Ensure you import the ESM from `/dist/arjs-plugin-artoolkit.es.js` and that `/dist/assets/worker-*.js` is served.
   - The build uses `base: './'`, so worker URLs are relative to the ESM file location.
