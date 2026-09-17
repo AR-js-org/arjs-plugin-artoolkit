@@ -257,4 +257,29 @@ describe("artoolkit-detector", () => {
       id: "late-state",
     });
   });
+
+  it("serves loadPattern again after recovering from an exhausted retry cycle", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createARToolKitState.mockRejectedValue(new Error("wasm missing"));
+      const detector = createDetector({
+        cameraParametersUrl: "/camera_para.dat",
+      });
+      const doomed = detector.loadPattern("/patt.hiro", 1);
+
+      for (let i = 0; i < 6; i++) {
+        await detector.ensureReady(640, 480);
+        vi.advanceTimersByTime(60000);
+      }
+      await expect(doomed).rejects.toThrow(/failed/i);
+
+      // The outage ends and initialisation succeeds.
+      mocks.createARToolKitState.mockResolvedValue({ id: "state" });
+      await detector.ensureReady(640, 480);
+
+      await expect(detector.loadPattern("/patt.kanji", 1)).resolves.toBe(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

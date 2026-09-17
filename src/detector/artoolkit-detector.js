@@ -67,25 +67,48 @@ export function createDetector(options = {}) {
   let failedUntil = 0;
   let disposed = false;
 
-  /** Resolves once state exists; rejects if the detector can never become ready. */
   let resolveReady;
   let rejectReady;
   let readySettled = false;
-  const readyPromise = new Promise((resolve, reject) => {
-    resolveReady = (value) => {
-      readySettled = true;
-      resolve(value);
-    };
-    rejectReady = (err) => {
-      readySettled = true;
-      reject(err);
-    };
-  });
 
-  // Nothing observes this promise until loadPattern awaits it. Attach a no-op
-  // handler so settling it rejected with no consumer does not raise an
-  // unhandled-rejection warning.
-  readyPromise.catch(() => {});
+  /**
+   * Resolves with the ARToolKit state once it exists; rejects when the current
+   * initialisation cycle gives up, or when the detector is disposed.
+   *
+   * Re-armed after a rejection. A settled promise can never change state, so a
+   * single long-lived promise would leave `loadPattern` permanently broken
+   * after one exhausted retry cycle — even once initialisation later succeeds
+   * and the detector is genuinely healthy again.
+   *
+   * @type {Promise<Object>}
+   */
+  let readyPromise;
+
+  /**
+   * Install a fresh unsettled `readyPromise` and its settle functions.
+   *
+   * @private
+   */
+  function armReadyPromise() {
+    readySettled = false;
+    readyPromise = new Promise((resolve, reject) => {
+      resolveReady = (value) => {
+        readySettled = true;
+        resolve(value);
+      };
+      rejectReady = (err) => {
+        readySettled = true;
+        reject(err);
+      };
+    });
+
+    // Nothing observes this promise until loadPattern awaits it. Attach a no-op
+    // handler so settling it rejected with no consumer does not raise an
+    // unhandled-rejection warning.
+    readyPromise.catch(() => {});
+  }
+
+  armReadyPromise();
 
   /** @type {Map<string, number>} patternUrl -> markerId */
   const loaded = new Map();
@@ -129,7 +152,7 @@ export function createDetector(options = {}) {
         state = created;
         failCount = 0;
         failedUntil = 0;
-        resolveReady(state);
+        if (!readySettled) resolveReady(state);
         return true;
       } catch (err) {
         state = null;
@@ -145,6 +168,10 @@ export function createDetector(options = {}) {
               `ARToolKit initialisation failed ${failCount} times: ${err?.message || err}`,
             ),
           );
+          // Anyone already waiting gets that rejection. Re-arm so a later
+          // successful attempt can serve new callers instead of handing them a
+          // permanently rejected promise.
+          armReadyPromise();
         }
         return false;
       } finally {
@@ -164,9 +191,11 @@ export function createDetector(options = {}) {
    *
    * Rejects if the detector is disposed — either already, at the time of the
    * call, or while this call was waiting on readiness — rather than reaching
-   * through to a freed state. Also rejects once the detector can never become
-   * ready, i.e. once {@link ensureReady} has exhausted its retries, instead of
-   * leaving the caller waiting on a promise that would never settle.
+   * through to a freed state. Also rejects if the current initialisation
+   * cycle has given up after repeated failures, instead of leaving the caller
+   * waiting on a promise that would never settle. That rejection is not
+   * permanent: {@link ensureReady} keeps retrying, and once an attempt
+   * eventually succeeds, later calls resolve normally again.
    *
    * @param {string} patternUrl - URL of the .patt file
    * @param {number} [size=1] - Marker width in world units
