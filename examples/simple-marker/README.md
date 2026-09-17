@@ -72,7 +72,7 @@ above is the supported way to produce a servable bundle for this example.
 
 ## Module resolution
 
-When importing the built ESM from `dist/`, ARToolKit is bundled and no extra configuration is required. The plugin also exposes the build-time version constant. Since `camera_para.dat` is now included locally in this example, we reference it directly:
+When importing the built ESM from `dist/`, the plugin's JavaScript is bundled and needs no extra configuration. The WASM binary is a separate story: Vite's library build does not copy it into `dist/`, so `wasmUrl` must point at it explicitly or WASM loading fails (see Troubleshooting below for the exact failure mode). Serving the repository root — as this example requires — makes the installed package's own copy of the binary reachable directly, which is what `wasmUrl` points at here. The plugin also exposes the build-time version constant. Since `camera_para.dat` is now included locally in this example, we reference it directly:
 
 ```js
 import {
@@ -83,13 +83,14 @@ import {
 const plugin = new ArtoolkitPlugin({
   worker: true,
   cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
+  wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
 });
 
 console.log("Plugin version (constant):", ARTOOLKIT_PLUGIN_VERSION);
 console.log("Plugin version (instance):", plugin.version);
 ```
 
-If you develop against `src/` instead (without bundling yet), import `ArtoolkitPlugin` directly from `src/index.js`. You can override camera parameters (local file included), the ARToolKit WASM binary URL (`wasmUrl`), and the detection confidence floor (`minConfidence`):
+If you develop against `src/` instead (without bundling yet), import `ArtoolkitPlugin` directly from `src/index.js`. You must still provide `wasmUrl` — it is never resolved automatically, dist build or not — and can also override camera parameters (local file included) and the detection confidence floor (`minConfidence`):
 
 > **Note:** The previous `dev/smoke-browser.html` example is deprecated and references to it have been removed due to browser module loading issues. For development against `src/`, ensure you provide correct module URLs and configuration, but do not rely on the old smoke test example.
 
@@ -141,10 +142,13 @@ instance to show that multi-marker tracking already works end to end:
 Key parts of the example:
 
 ```javascript
-// Create plugin instance with worker enabled
+// Create plugin instance with worker enabled. wasmUrl is required: Vite's
+// library build does not copy the WASM binary into dist/, and it is never
+// resolved automatically otherwise.
 const plugin = new ArtoolkitPlugin({
   worker: true,
   cameraParametersUrl: "/examples/simple-marker/data/camera_para.dat",
+  wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
 });
 
 // Initialize and enable
@@ -178,6 +182,34 @@ console.log(`kanji loaded with ID: ${kanji.markerId}`);
   - Click “Start Camera” before “Load Markers”
   - Ensure good lighting and the correct marker
   - Adjust `minConfidence` in the plugin options (default 0.6) if detections are too strict or too noisy.
+
+**`loadMarker()` hangs for ~10 seconds and then rejects with "loadMarker request timed out", with no `ar:workerError` logged first?**
+
+This is the symptom of a missing or unreachable `wasmUrl` — not a code bug.
+
+- Vite's library build does not copy the WASM binary into `dist/`. Without
+  an explicit `wasmUrl`, artoolkit5-ts resolves the bare filename relative
+  to the worker chunk instead (`/dist/assets/worker-*.js`), where it does
+  not exist, and WASM compilation fails inside the worker with something
+  like:
+  ```
+  wasm streaming compile failed: TypeError: Failed to execute 'compile' on
+  'WebAssembly': HTTP status code is not ok
+  failed to asynchronously prepare wasm: both async and sync fetching of
+  the wasm failed
+  ```
+- That failure is caught and retried with backoff inside the detector
+  rather than thrown, so it never reaches the worker's top-level error
+  handler and no `ar:workerError` fires. The detector only gives up (and
+  rejects its readiness) after six consecutive failures, which takes far
+  longer than ten seconds at its backoff schedule, so in practice
+  `plugin.loadMarker()` always hits its own 10-second client-side timeout
+  first. The visible symptom is a silent hang, not a visible error.
+- Fix: pass `wasmUrl` pointing at the installed package's binary. This
+  example passes
+  `/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm`, which
+  only resolves because the repository root is being served (see "Serve
+  the Example" above).
 
 ## Browser Support
 
