@@ -7,6 +7,19 @@
  * `src/detector/artoolkit-detector.js`, where it can be tested without a
  * Worker.
  *
+ * Every `processFrame` message is acknowledged with exactly one
+ * `detectionResult`, unconditionally - including when both `detected` and
+ * `lost` are empty, and for frames skipped outright (no `ImageBitmap`, or the
+ * detector not yet constructed). `src/plugin.js` gates frame submission on
+ * this acknowledgement arriving (at most one frame in flight at a time), so a
+ * silently-dropped frame would wedge submission permanently. An earlier
+ * version only acknowledged frames with something to report; that saved a
+ * cheap postMessage but let the worker's unbounded FIFO queue grow without
+ * bound once detection fell behind the camera's frame rate, starving
+ * `loadMarker` behind the backlog. See the "Post-implementation note" on the
+ * worker message protocol section of
+ * docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md.
+ *
  * Browser-only: requires `OffscreenCanvas` and the Worker global scope.
  *
  * @module worker/worker
@@ -116,7 +129,17 @@ self.addEventListener("message", async (ev) => {
 
     if (type === "processFrame") {
       const { frameId, imageBitmap, width, height } = payload || {};
-      if (!imageBitmap || !detector) return;
+      if (!imageBitmap || !detector) {
+        // Still acknowledge: the plugin's in-flight flag is only cleared by
+        // a detectionResult (or error) arriving, so a silent return here -
+        // with no imageBitmap to close and nothing detected - would leave it
+        // stuck forever and stop frame submission for good.
+        sendMessage({
+          type: "detectionResult",
+          payload: { frameId, detected: [], lost: [] },
+        });
+        return;
+      }
 
       const w = width || imageBitmap.width || 640;
       const h = height || imageBitmap.height || 480;
@@ -131,12 +154,13 @@ self.addEventListener("message", async (ev) => {
       const pixels = offscreenCtx.getImageData(0, 0, w, h).data;
       const { detected, lost } = detector.detect(pixels);
 
-      if (detected.length || lost.length) {
-        sendMessage({
-          type: "detectionResult",
-          payload: { frameId, detected, lost },
-        });
-      }
+      // Always acknowledge, even with nothing detected. This costs one small
+      // postMessage per frame and buys back-pressure: it is the plugin's
+      // only signal that this frame is done and the next one may be sent.
+      sendMessage({
+        type: "detectionResult",
+        payload: { frameId, detected, lost },
+      });
       return;
     }
 

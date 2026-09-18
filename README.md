@@ -377,6 +377,14 @@ engine.eventBus.emit("engine:update", {
 // The ImageBitmap is transferred and cannot be reused; the worker will close it.
 ```
 
+At most one frame is ever in flight to the worker at a time. If an
+`engine:update` arrives while the previous frame is still being detected, the
+plugin drops it — closing its `ImageBitmap` rather than transferring it — and
+waits for the worker to finish the one it already has. This is deliberate
+backpressure, not a bug: it keeps a slow detector from building an unbounded
+backlog (which would otherwise starve `loadMarker()` behind queued frames).
+Emit frames as often as you like; the plugin decides how many it can use.
+
 <a id="loading-a-pattern-marker-"></a>
 
 ### Loading a pattern marker 📐

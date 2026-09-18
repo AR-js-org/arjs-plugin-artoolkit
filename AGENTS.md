@@ -71,6 +71,28 @@ first `processFrame` message, which is when real dimensions become known and
 `createARToolKitState` can fix them permanently. This is why `loadMarker()`
 must be called only after at least one frame has reached the worker.
 
+`detectionResult` is sent exactly once per `processFrame` received, always —
+including when both `detected` and `lost` are empty, and for a frame the
+worker skips outright (no `ImageBitmap` on the payload, or the detector not
+yet constructed). This acknowledgement is load-bearing, not a courtesy:
+`src/plugin.js` allows only one frame in flight at a time and relies on it
+arriving to release the next one (see `_onEngineUpdate` and
+`_onWorkerMessage`). A `processFrame` that went unacknowledged would wedge
+frame submission permanently. An earlier version sent `detectionResult` only
+when there was something to report; see the "Post-implementation note" in
+`docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md` for why
+that broke under real camera-rate load.
+
+At most one frame is ever in flight between the plugin and the worker.
+`_onEngineUpdate` drops — and closes the `ImageBitmap` of — any `engine:update`
+that arrives while the previous frame's `detectionResult`/`error` is still
+outstanding, rather than queueing it. `postMessage`'s per-worker queue is FIFO
+and unbounded, so with no backpressure a worker that falls behind the camera's
+frame rate accumulates an unbounded backlog, and every later message —
+including `loadMarker` — waits behind it. Dropping is deliberate: the newest
+frame is the one worth a pose, and a queued backlog only adds latency to a
+pose that is already stale by the time it is computed.
+
 ## Event contract
 
 | Event              | Payload                                             |

@@ -82,6 +82,13 @@ export class ArtoolkitPlugin {
     this._worker = null;
     this._onWorkerMessage = this._onWorkerMessage.bind(this);
 
+    // True while a processFrame message has been posted to the worker and no
+    // detectionResult/error has acknowledged it yet. Backpressure: gates
+    // _onEngineUpdate so at most one frame is ever in flight, instead of
+    // flooding the worker's unbounded FIFO postMessage queue. See
+    // _onEngineUpdate for the failure this prevents.
+    this._frameInFlight = false;
+
     // Engine update subscription
     this._onEngineUpdate = this._onEngineUpdate.bind(this);
 
@@ -213,11 +220,32 @@ export class ArtoolkitPlugin {
    *
    * @private
    * @note After ImageBitmap transfer, the main thread's bitmap is neutered and cannot be reused
+   * @note At most one frame is ever in flight (see the backpressure paragraph above the method body)
    */
   _onEngineUpdate(frame) {
     // frame is expected to be an object provided by the capture system, e.g.:
     // { id: number, timestamp, imageBitmap?, width, height, sourceRef }
     if (!frame) return;
+
+    // Backpressure. postMessage's queue is FIFO and unbounded: posting one
+    // processFrame per engine:update with no regard for whether the worker
+    // finished the last one means that once detect() takes longer than the
+    // frame interval - which real pattern matching at 60fps does - frames
+    // pile up behind the one the worker is currently processing, and every
+    // later message queued after them (including loadMarker) waits behind
+    // the entire backlog. Observed on real hardware: loadMarker timed out at
+    // its 10s client-side limit while its loadMarkerResult was still stuck
+    // behind hundreds of queued frames.
+    //
+    // Fix: drop rather than queue. The newest frame is the one worth a pose;
+    // a queued backlog only adds latency to a pose that is already stale by
+    // the time it would be computed. The dropped frame's ImageBitmap is
+    // closed here because nothing else will - skipping the close leaks a
+    // full-resolution bitmap per dropped frame, severe at 60fps.
+    if (this._frameInFlight) {
+      frame.imageBitmap?.close?.();
+      return;
+    }
 
     // If the frame contains an ImageBitmap (browser), transfer it to the worker for zero-copy processing.
     if (this._worker && frame.imageBitmap) {
@@ -238,6 +266,7 @@ export class ArtoolkitPlugin {
           [frame.imageBitmap],
         );
         // After transfer, the main thread's ImageBitmap is neutered; consumer should not reuse it.
+        this._frameInFlight = true;
       } catch (err) {
         console.warn(
           "Artoolkit worker postMessage (ImageBitmap) failed, falling back to frameId only",
@@ -248,6 +277,7 @@ export class ArtoolkitPlugin {
             type: "processFrame",
             payload: { frameId: frame.id },
           });
+          this._frameInFlight = true;
         } catch (e) {
           console.warn("worker postMessage failed", e);
         }
@@ -262,6 +292,7 @@ export class ArtoolkitPlugin {
           type: "processFrame",
           payload: { frameId: frame.id },
         });
+        this._frameInFlight = true;
       } catch (err) {
         console.warn("Artoolkit worker postMessage failed", err);
       }
@@ -324,6 +355,11 @@ export class ArtoolkitPlugin {
    * artoolkit5-ts's state. The dispose is a courtesy to the library, not a
    * memory-management requirement.
    *
+   * Also resets the in-flight frame flag (see `_onEngineUpdate`). Without
+   * this, a frame left unacknowledged by the stopped worker would keep
+   * `_onEngineUpdate` dropping every frame forever, even after a fresh
+   * worker starts — a restarted worker must not be born blocked.
+   *
    * @private
    */
   _stopWorker() {
@@ -331,6 +367,7 @@ export class ArtoolkitPlugin {
 
     const worker = this._worker;
     this._worker = null;
+    this._frameInFlight = false;
 
     try {
       worker.postMessage({ type: "dispose" });
@@ -440,9 +477,15 @@ export class ArtoolkitPlugin {
    *
    * Processes different message types and routes them appropriately:
    * - `ready`: Worker initialized, sets workerReady flag
-   * - `detectionResult`: Applies detections and losses via _applyDetections/_applyLost
+   * - `detectionResult`: Clears the in-flight frame flag (see
+   *   `_onEngineUpdate`) so the next frame may be sent, then applies
+   *   detections and losses via _applyDetections/_applyLost. The worker
+   *   acknowledges every `processFrame` this way, including empty results,
+   *   specifically so this flag can never get stuck.
    * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
-   * - `error`: Worker error, emits ar:workerError event
+   * - `error`: Worker error; also clears the in-flight frame flag, otherwise
+   *   a failed frame would wedge frame submission permanently, then emits
+   *   ar:workerError event
    *
    * @param {MessageEvent} ev - Message event from the worker
    * @param {Object} [ev.data] - Message data
@@ -458,6 +501,7 @@ export class ArtoolkitPlugin {
       this.workerReady = true;
       this.core?.eventBus?.emit("ar:workerReady", {});
     } else if (type === "detectionResult") {
+      this._frameInFlight = false;
       if (!payload) return;
       this._applyDetections(payload.detected);
       this._applyLost(payload.lost);
@@ -478,6 +522,7 @@ export class ArtoolkitPlugin {
       }
     } else if (type === "error") {
       console.error("Artoolkit worker error", payload);
+      this._frameInFlight = false;
       this.core?.eventBus?.emit("ar:workerError", payload);
     }
   }
