@@ -49,8 +49,11 @@ describe("marker families are tracked independently", () => {
     await plugin.disable();
   });
 
-  it("losing pattern 3 leaves barcode 3 tracked", async () => {
-    const plugin = new ArtoolkitPlugin({ worker: false });
+  it("losing pattern 3 accumulates misses independently of barcode 3", async () => {
+    // Pattern and barcode share the numeric id 3 here on purpose: if the
+    // registry were keyed by bare id instead of `${type}:${id}`, missing
+    // pattern:3 would also perturb barcode:3's count.
+    const plugin = new ArtoolkitPlugin({ worker: false, lostThreshold: 3 });
     await plugin.init(core);
     await plugin.enable();
 
@@ -75,6 +78,27 @@ describe("marker families are tracked independently", () => {
     const lost = vi.fn();
     core.eventBus.on("ar:markerLost", lost);
 
+    // Miss pattern:3 alone (1/3); barcode:3's own counter must stay at 0.
+    // @ts-ignore
+    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "pattern" }]));
+    expect(plugin.getMarkerState(3, "barcode").consecutiveMisses).toBe(0);
+
+    // Miss both together (pattern 2/3, barcode 1/3) - different counts on
+    // the same numeric id.
+    // @ts-ignore
+    plugin._onWorkerMessage(
+      detectionResult(
+        [],
+        [
+          { id: 3, type: "pattern" },
+          { id: 3, type: "barcode" },
+        ],
+      ),
+    );
+    expect(lost).not.toHaveBeenCalled();
+
+    // Miss pattern:3 alone again: its 3rd consecutive miss crosses
+    // lostThreshold while barcode:3 (at 1) is untouched and stays tracked.
     // @ts-ignore
     plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "pattern" }]));
 
@@ -83,8 +107,23 @@ describe("marker families are tracked independently", () => {
       markerId: 3,
       type: "pattern",
     });
-    expect(plugin.getMarkerState(3, "barcode")).not.toBeNull();
     expect(plugin.getMarkerState(3, "pattern")).toBeNull();
+    const barcodeState = plugin.getMarkerState(3, "barcode");
+    expect(barcodeState).not.toBeNull();
+    expect(barcodeState.consecutiveMisses).toBe(1);
+
+    // Barcode:3 crosses its own threshold independently, two misses later.
+    // @ts-ignore
+    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "barcode" }]));
+    // @ts-ignore
+    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "barcode" }]));
+
+    expect(lost).toHaveBeenCalledTimes(2);
+    expect(lost.mock.calls[1][0]).toMatchObject({
+      markerId: 3,
+      type: "barcode",
+    });
+    expect(plugin.getMarkerState(3, "barcode")).toBeNull();
 
     await plugin.disable();
   });

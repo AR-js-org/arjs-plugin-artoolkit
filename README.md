@@ -302,7 +302,7 @@ import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
 
 const plugin = new ArtoolkitPlugin({
   worker: true,
-  lostThreshold: 5, // frames before a marker is considered lost
+  lostThreshold: 5, // consecutive missed frames before a marker is considered lost
   frameDurationMs: 100, // expected ms per frame (affects lost timing)
   wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
   cameraParametersUrl: "/data/camera_para.dat",
@@ -433,7 +433,7 @@ The example demonstrates:
 ```text
 {
   worker?: boolean;            // Enable worker (default: true)
-  lostThreshold?: number;      // Frames before 'lost' (default: 5)
+  lostThreshold?: number;      // Consecutive missed frames before 'lost' (default: 5)
   frameDurationMs?: number;    // ms per frame used with lostThreshold (default: 200)
   sweepIntervalMs?: number;    // Lost-sweep interval (default: 100)
   cameraParametersUrl?: string;// Camera params file URL (required unless you rely on a remote default)

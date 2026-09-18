@@ -111,6 +111,21 @@ WebGL and for `THREE.Matrix4.fromArray()`. It needs no conversion.
 plugin's internal registry is keyed `` `${type}:${id}` ``, never by ID alone.
 Anything keyed on the bare ID will make pattern 3 and barcode 3 collide.
 
+`ar:markerLost` is debounced, not immediate. The detector routinely fails to
+report a well-tracked marker on an isolated frame — angle, motion blur,
+lighting — so `_applyLost` requires `lostThreshold` **consecutive** frames of
+the library reporting a marker missing before it fires. Each registry entry
+carries a `consecutiveMisses` counter that `_applyLost` increments and
+`_applyDetections` resets to 0 on any sighting. While a marker is within that
+tolerance it stays in the registry and nothing is emitted; a re-detection
+during the window emits `ar:markerUpdated`, not `ar:markerFound`, since the
+marker never left as far as consumers are concerned. Only once the counter
+reaches `lostThreshold` is the entry removed and `ar:markerLost` emitted, so a
+later detection correctly starts over with `ar:markerFound`. This is separate
+from `_sweepMarkers`, which covers frames that stop arriving at all (see the
+"Lost markers" row of the Decisions table and its "Post-implementation note"
+in `docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md`).
+
 ## Conventions
 
 - ESM only. `"type": "module"`; no `require`.
