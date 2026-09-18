@@ -36,7 +36,7 @@ export { ARTOOLKIT_PLUGIN_VERSION };
  * @class
  * @param {Object} options - Configuration options
  * @param {boolean} [options.worker=true] - Enable worker-based detection
- * @param {number} [options.lostThreshold=5] - Frames before marking a marker as lost
+ * @param {number} [options.lostThreshold=5] - Consecutive frames the detector must report a marker missing before it is marked lost (see _applyLost); also scales the staleness-sweep timeout (see _sweepMarkers)
  * @param {number} [options.frameDurationMs=200] - Milliseconds per frame (for lost calculation)
  * @param {number} [options.sweepIntervalMs=100] - Interval for running lost-marker sweep
  * @param {string} [options.cameraParametersUrl] - Camera calibration parameters URL
@@ -54,7 +54,7 @@ export { ARTOOLKIT_PLUGIN_VERSION };
  *
  * @fires ar:markerFound - When a marker is first detected
  * @fires ar:markerUpdated - When a tracked marker's pose updates
- * @fires ar:markerLost - When a marker hasn't been seen for lostThreshold frames
+ * @fires ar:markerLost - When the detector reports a marker missing on lostThreshold consecutive frames
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
  *
@@ -94,7 +94,7 @@ export class ArtoolkitPlugin {
 
     // Marker state tracking, keyed `${type}:${id}` because pattern and barcode
     // markers have independent ID registries: Map<string, { lastSeen: number,
-    // visible: boolean, id: number, type: string }>
+    // visible: boolean, consecutiveMisses: number, id: number, type: string }>
     this._markers = new Map();
 
     // Use options consistently
@@ -398,8 +398,13 @@ export class ArtoolkitPlugin {
   /**
    * Apply detection results and emit marker events.
    *
-   * A marker not currently visible emits `ar:markerFound`; one already visible
-   * emits `ar:markerUpdated`.
+   * A marker not currently tracked emits `ar:markerFound`. One already
+   * tracked emits `ar:markerUpdated` and has its `consecutiveMisses` counter
+   * reset to 0 - a single good frame fully clears any misses accumulated by
+   * {@link _applyLost}, regardless of how close the marker was to crossing
+   * `lostThreshold`. This is what keeps a marker's identity continuous
+   * across a brief miss streak: as long as the registry entry survives, a
+   * re-detection is treated as the same marker, never a new one.
    *
    * @param {Array<Object>} detected - Poses from the worker
    * @param {number} detected[].id - Marker ID within its family
@@ -432,11 +437,19 @@ export class ArtoolkitPlugin {
         timestamp: now,
       };
 
-      if (!prev || !prev.visible) {
-        this._markers.set(key, { lastSeen: now, visible: true, id, type });
+      if (!prev) {
+        this._markers.set(key, {
+          lastSeen: now,
+          visible: true,
+          consecutiveMisses: 0,
+          id,
+          type,
+        });
         this.core?.eventBus?.emit("ar:markerFound", payload);
       } else {
         prev.lastSeen = now;
+        prev.visible = true;
+        prev.consecutiveMisses = 0;
         this._markers.set(key, prev);
         this.core?.eventBus?.emit("ar:markerUpdated", payload);
       }
@@ -444,7 +457,20 @@ export class ArtoolkitPlugin {
   }
 
   /**
-   * Emit `ar:markerLost` for markers the detector reports as gone.
+   * Debounce and apply `ar:markerLost` for markers the detector reports as
+   * missing on this frame.
+   *
+   * ARToolKit routinely fails to detect a well-tracked marker on an isolated
+   * frame - angle, motion blur, lighting - so a single miss must not be
+   * treated as a loss. Each report increments the entry's
+   * `consecutiveMisses` counter; while that counter stays below
+   * `lostThreshold` the marker stays in the registry and nothing is
+   * emitted. Only once it reaches `lostThreshold` does `ar:markerLost` fire,
+   * and the entry is removed at that point so a later detection correctly
+   * emits `ar:markerFound` rather than `ar:markerUpdated`. Any detection
+   * seen in the meantime resets the counter to 0 (see
+   * {@link _applyDetections}), so reaching the threshold requires
+   * `lostThreshold` *consecutive* misses, not a running total.
    *
    * A lost report for an untracked marker is ignored: confidence filtering can
    * drop a detection the library still considers tracked, so the plugin may
@@ -461,7 +487,16 @@ export class ArtoolkitPlugin {
       if (id === null || id === undefined || !type) continue;
 
       const key = this._markerKey(id, type);
-      if (!this._markers.has(key)) continue;
+      const prev = this._markers.get(key);
+      if (!prev) continue;
+
+      prev.visible = false;
+      prev.consecutiveMisses = (prev.consecutiveMisses || 0) + 1;
+
+      if (prev.consecutiveMisses < this.lostThreshold) {
+        this._markers.set(key, prev);
+        continue;
+      }
 
       this._markers.delete(key);
       this.core?.eventBus?.emit("ar:markerLost", {
@@ -559,8 +594,14 @@ export class ArtoolkitPlugin {
    *
    * @param {number} markerId - Marker ID within its family
    * @param {string} [type='pattern'] - Marker family, 'pattern' or 'barcode'
-   * @returns {Object|null} State with `lastSeen`, `visible`, `id` and `type`,
-   *   or null if the marker is not tracked
+   * @returns {Object|null} State with `lastSeen`, `visible`,
+   *   `consecutiveMisses`, `id` and `type`, or null if the marker is not
+   *   tracked (never seen, or already past `lostThreshold` misses).
+   *   `consecutiveMisses` is the debounce count `_applyLost` compares
+   *   against `lostThreshold`; `visible` reflects only the most recently
+   *   processed frame, true when detected, false during a miss streak that
+   *   hasn't yet crossed the threshold - unlike `consecutiveMisses`, it does
+   *   not say how long that streak has run.
    *
    * @example
    * const state = plugin.getMarkerState(42, 'pattern');

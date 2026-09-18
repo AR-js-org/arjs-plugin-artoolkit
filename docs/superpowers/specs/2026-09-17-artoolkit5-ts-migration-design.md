@@ -219,6 +219,45 @@ than removing it and fixing it at the source.
 with accurate documentation: it returns a defensive copy, and no coordinate
 conversion is required for `matrixGL` input. It is marked deprecated.
 
+### Post-implementation note: the debounce "Library `lost[]` is primary" dropped
+
+The Decisions table's "Lost markers" row — library `lost[]` primary, interval
+sweep demoted to stall guard — was correct about _which_ signal should detect
+a loss. It did not account for _how quickly_ to act on that signal, and the
+implementation that shipped acted on it immediately: `_applyLost` deleted the
+registry entry and emitted `ar:markerLost` on the very first frame the
+library reported a marker missing, with no debounce at all.
+
+Pre-migration (`git show 9de4b46:src/plugin.js`), there was no library-lost
+path to be immediate about — `ar:markerLost` came solely from the interval
+sweep in `_sweepMarkers`, so a marker had to go `lostThreshold *
+frameDurationMs` (1000ms with the defaults of 5 and 200) without a detection
+before it fired. Promoting `lost[]` to primary silently deleted that
+hysteresis: nothing in the design above says the sweep's debounce should
+carry over to the new path, and nothing noticed that it didn't.
+
+ARToolKit routinely fails to detect a well-tracked marker on an isolated
+frame — angle, motion blur, lighting. The repository owner found the result
+on real hardware: markers churned `FOUND -> UPDATED -> LOST -> FOUND` on
+brief single-frame gaps, at confidence 0.86-0.88, nowhere near
+`minConfidence`, that the pre-migration sweep would have absorbed silently as
+continued `ar:markerUpdated`.
+
+Fixed by giving the debounce back to the library-primary path instead of
+reverting to the sweep: each registry entry now carries a `consecutiveMisses`
+counter. `_applyLost` increments it per missed frame and only deletes the
+entry and emits `ar:markerLost` once the counter reaches `lostThreshold`;
+`_applyDetections` resets it to 0 on any sighting, so a re-detection within
+tolerance emits `ar:markerUpdated`, not `ar:markerFound` — the marker never
+left as far as consumers are concerned. This makes `lostThreshold` mean what
+its JSDoc always claimed, "consecutive frames," rather than a fixed 1000ms
+wall-clock constant, and it scales with real frame rate instead of assuming
+200ms/frame. `_sweepMarkers` is unchanged; it still exists solely for frames
+that stop arriving at all, which the library structurally cannot report on.
+`AGENTS.md`'s event contract section and `src/plugin.js`'s JSDoc carry the
+corrected, current description of when `ar:markerLost` fires; this note
+records only the history.
+
 ## Marker registry
 
 The registry is a `Map` keyed by the marker's family and ID combined into a
