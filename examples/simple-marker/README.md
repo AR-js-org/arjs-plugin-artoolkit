@@ -189,14 +189,18 @@ This symptom has two distinct causes that produce an identical hang — see the
 [root README's Troubleshooting section](../../README.md#troubleshooting-) for
 the full explanation of both. If fixing one doesn't help, check the other.
 
-- **Cause 2 is the likely one in this example:** `loadMarker()` was called
-  before any frame was processed. Detector initialisation is
+- **Cause 2 is why this example's “Load Markers” button starts disabled —
+  and it can still bite you in your own integration:** `loadMarker()` was
+  called before any frame was processed. Detector initialisation is
   frame-triggered, not `enable()`-triggered, so the worker only creates its
-  ARToolKit state once it has handled a first `processFrame`. This example's
-  “Load Markers” button is enabled as soon as `ar:workerReady` fires — before
-  any camera frame exists — not once a frame has actually been sent, so it is
-  easy to click it too early despite the status text's advice. Click “Start
-  Camera” first and give it a moment before “Load Markers”.
+  ARToolKit state once it has handled a first `processFrame`. This example
+  now enforces that ordering itself: the button stays disabled through
+  `ar:workerReady` and only becomes clickable once the camera loop's
+  `tick()` has emitted its first `engine:update` frame, so clicking through
+  the UI here can't reproduce the hang anymore. Nothing enforces the
+  ordering for you in your own code, though — make sure your capture source
+  is running and has sent at least one `engine:update` frame before calling
+  `loadMarker()`.
 - **Cause 1, missing or unreachable `wasmUrl`, is less likely here:** this
   example already passes `wasmUrl` explicitly (see [Module
   resolution](#module-resolution) above), so re-checking it first will

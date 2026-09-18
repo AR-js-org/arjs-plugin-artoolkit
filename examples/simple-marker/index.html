@@ -121,6 +121,7 @@
       const core = { eventBus };
 
       let plugin;
+      let framesFlowing = false;
 
       async function start() {
         try {
@@ -141,10 +142,9 @@
           eventBus.on("ar:workerReady", () => {
             log("Worker ready");
             setStatus(
-              "Worker ready. Start camera and then load markers.",
+              "Worker ready. Start the camera to enable marker loading.",
               "success",
             );
-            loadMarkerBtn.disabled = false;
           });
           eventBus.on("ar:workerError", (e) => {
             log(`workerError: ${JSON.stringify(e)}`);
@@ -167,10 +167,9 @@
           if (plugin.workerReady) {
             log("Worker was already ready (post-enable).");
             setStatus(
-              "Worker ready. Start camera and then load markers.",
+              "Worker ready. Start the camera to enable marker loading.",
               "success",
             );
-            loadMarkerBtn.disabled = false;
           } else {
             setStatus("Plugin initialized. Waiting for worker…", "normal");
           }
@@ -206,11 +205,19 @@
               width: canvas.width,
               height: canvas.height,
             });
+            if (!framesFlowing) {
+              framesFlowing = true;
+              loadMarkerBtn.disabled = false;
+              setStatus(
+                "Camera running. You can now load the markers.",
+                "success",
+              );
+            }
             requestAnimationFrame(tick);
           }
           requestAnimationFrame(tick);
           log("Camera started.");
-          setStatus("Camera started. You can now load the markers.", "success");
+          setStatus("Camera started. Waiting for the first frame…", "normal");
         } catch (err) {
           log("Camera error: " + (err && err.message ? err.message : err));
           setStatus("Camera error", "error");
@@ -243,7 +250,7 @@
           log("loadMarker failed: " + (err && err.message ? err.message : err));
           setStatus("Failed to load marker", "error");
         } finally {
-          loadMarkerBtn.disabled = false;
+          loadMarkerBtn.disabled = !framesFlowing;
         }
       });
 
