@@ -64,10 +64,12 @@ above is the supported way to produce a servable bundle for this example.
 ### 4. Using the Example
 
 1. Wait for the worker to be ready (`ar:workerReady` event – UI shows “Worker ready”).
-2. Click “Start Camera” to begin sending frames.
+2. Click “Start Camera” to begin sending frames. Once permission is granted,
+   the live camera feed appears above the event log, so you can see what
+   you're aiming at the marker while you watch detection results below it.
 3. Click “Load Markers” to load both the hiro and kanji pattern markers.
-4. Show either marker to the camera and watch the event log and console — each
-   one reports its own `markerId`.
+4. Show either marker to the camera and watch the “Tracked markers” line,
+   the event log, and the console — each one reports its own `markerId`.
 5. (Optional) Log the plugin version: `console.log(plugin.version)`.
 
 ## Module resolution

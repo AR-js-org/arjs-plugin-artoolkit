@@ -51,7 +51,13 @@
         cursor: default;
       }
       #video {
-        display: none;
+        display: block;
+        width: 100%;
+        max-width: 480px;
+        height: auto;
+        background: #000;
+        border-radius: 4px;
+        margin: 10px 0;
       }
     </style>
   </head>
@@ -70,10 +76,12 @@
       <button id="loadMarkerBtn" disabled>Load Markers</button>
     </div>
 
+    <h3>Camera Preview:</h3>
+    <video id="video" autoplay playsinline></video>
+    <div id="trackedMarkers" class="status">Tracked markers: none</div>
+
     <h3>Event Log:</h3>
     <div id="log" class="log"></div>
-
-    <video id="video" autoplay playsinline></video>
 
     <!-- Only showing the <script type="module"> block; keep the rest unchanged -->
     <script type="module">
@@ -84,6 +92,7 @@
       const loadMarkerBtn = document.getElementById("loadMarkerBtn");
       const startCamBtn = document.getElementById("startCamBtn");
       const video = document.getElementById("video");
+      const trackedEl = document.getElementById("trackedMarkers");
 
       function log(message) {
         const ts = new Date().toISOString();
@@ -99,6 +108,18 @@
         statusEl.className = "status";
         if (type === "success") statusEl.classList.add("success");
         if (type === "error") statusEl.classList.add("error");
+      }
+
+      // Currently-tracked markers, keyed the same way as the plugin's own
+      // registry ("type:markerId") so pattern and barcode markers with the
+      // same numeric ID never collide. This is a plain text readout, not a
+      // pose overlay — drawing marker poses is renderer work that belongs to
+      // arjs-plugin-threejs, not this example.
+      const trackedMarkers = new Set();
+      function updateTrackedMarkers() {
+        trackedEl.textContent = trackedMarkers.size
+          ? `Tracked markers: ${[...trackedMarkers].sort().join(", ")}`
+          : "Tracked markers: none";
       }
 
       const eventBus = {
@@ -150,15 +171,21 @@
             log(`workerError: ${JSON.stringify(e)}`);
             setStatus("Worker error (see console)", "error");
           });
-          eventBus.on("ar:markerFound", (e) =>
-            log(`FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)}`),
-          );
-          eventBus.on("ar:markerUpdated", (e) =>
-            log(`UPDATED ${e.type}:${e.markerId}`),
-          );
-          eventBus.on("ar:markerLost", (e) =>
-            log(`LOST ${e.type}:${e.markerId}`),
-          );
+          eventBus.on("ar:markerFound", (e) => {
+            log(`FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)}`);
+            trackedMarkers.add(`${e.type}:${e.markerId}`);
+            updateTrackedMarkers();
+          });
+          eventBus.on("ar:markerUpdated", (e) => {
+            log(`UPDATED ${e.type}:${e.markerId}`);
+            trackedMarkers.add(`${e.type}:${e.markerId}`);
+            updateTrackedMarkers();
+          });
+          eventBus.on("ar:markerLost", (e) => {
+            log(`LOST ${e.type}:${e.markerId}`);
+            trackedMarkers.delete(`${e.type}:${e.markerId}`);
+            updateTrackedMarkers();
+          });
 
           await plugin.init(core);
           await plugin.enable();
