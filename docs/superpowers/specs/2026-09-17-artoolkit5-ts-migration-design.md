@@ -133,6 +133,46 @@ The `artoolkitModuleUrl` option is renamed `wasmUrl`, matching
 The `dispose` message is new: it lets `disposeARToolKitState` run and release
 WASM resources before the worker is terminated.
 
+### Post-implementation note: unbounded queueing under camera-rate load
+
+The design above sent `detectionResult` only when the worker had something to
+report (`if (detected.length || lost.length)`). That was found to cause
+unbounded queueing once real hardware exercised it at camera frame rate.
+`postMessage` delivers to a single FIFO queue per worker; skipping the
+acknowledgement for frames with nothing to report meant the plugin had no
+signal that a frame had finished, so `_onEngineUpdate` kept posting one
+`processFrame` per `engine:update` with no regard for whether the worker was
+still processing the previous one. Once `detect()` took longer than the frame
+interval — which real pattern matching at 60fps does — the backlog grew
+without bound, and every later message, including `loadMarker`, queued behind
+it.
+
+Reproduced against the commit this migration shipped, varying only the frame
+rate: 212 frames pumped at a 33ms interval let a concurrent `loadMarker`
+resolve in 46ms; 930 frames at a 4ms interval delayed it past its 10-second
+client-side timeout. The `loadMarkerResult` that would have resolved it
+arrived after the timeout had already deleted the pending entry, so the
+resolution was silently dropped, and — because the `simple-marker` example
+awaits each `loadMarker` in sequence — the rejection threw before the second
+marker was ever requested.
+
+Fixed by replacing the guard with two changes, not a bigger timeout:
+
+1. The worker now posts exactly one `detectionResult` per `processFrame`
+   received, unconditionally — including empty results and the frames it
+   skips outright (no `ImageBitmap`, or the detector not yet constructed).
+2. `src/plugin.js` tracks a single in-flight frame (`_frameInFlight`) and
+   drops — closing the `ImageBitmap` of — any `engine:update` that arrives
+   before the previous frame's acknowledgement, rather than queueing it. The
+   flag is cleared by `detectionResult` or `error`, and reset in
+   `_stopWorker` so a restarted worker is not born blocked.
+
+Dropping is correct for real-time vision: the newest frame is the one worth a
+pose, and a queued backlog only adds latency to a pose that is already stale
+by the time it is computed. `AGENTS.md`'s worker message protocol section
+carries the corrected, current description of when `detectionResult` is sent
+and of the in-flight gate; this note records only the history.
+
 ## Event contract
 
 | Event              | Payload                                             |
