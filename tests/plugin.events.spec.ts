@@ -46,6 +46,50 @@ describe("event payload contract", () => {
     await plugin.disable();
   });
 
+  it("carries the square's corners on found and on updated", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    await plugin.enable();
+
+    const found = vi.fn();
+    const updated = vi.fn();
+    core.eventBus.on("ar:markerFound", found);
+    core.eventBus.on("ar:markerUpdated", updated);
+
+    const vertex = [
+      [10, 20],
+      [30, 20],
+      [30, 40],
+      [10, 40],
+    ];
+    const detected = [
+      {
+        id: 5,
+        type: "pattern",
+        confidence: 0.9,
+        matrixGL: new Float32Array(16),
+        vertex,
+      },
+    ];
+
+    // Twice: the first sighting emits found, the second emits updated, and a
+    // consumer drawing an outline needs the corners from both.
+    for (const frameId of [1, 2]) {
+      // @ts-ignore
+      plugin._onWorkerMessage({
+        data: {
+          type: "detectionResult",
+          payload: { frameId, detected, lost: [] },
+        },
+      });
+    }
+
+    expect(found.mock.calls[0][0].vertex).toEqual(vertex);
+    expect(updated.mock.calls[0][0].vertex).toEqual(vertex);
+
+    await plugin.disable();
+  });
+
   it("never emits ar:getMarker", async () => {
     const plugin = new ArtoolkitPlugin({ worker: false });
     await plugin.init(core);

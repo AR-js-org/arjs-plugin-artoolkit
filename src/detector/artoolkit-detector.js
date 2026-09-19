@@ -245,12 +245,19 @@ export function createDetector(options = {}) {
     // The native 3x4 Float64Array pose is deliberately not forwarded: nothing
     // downstream reads it, and it costs 96 bytes per marker per frame across
     // the worker boundary.
-    const detected = filtered.map(({ id, type, confidence, matrixGL }) => ({
-      id,
-      type,
-      confidence,
-      matrixGL,
-    }));
+    //
+    // `vertex` is forwarded, and is the one field here that is not a view onto
+    // a buffer artoolkit5-ts reuses next frame - it allocates a fresh array per
+    // detection, so it survives the structured clone and can be retained.
+    const detected = filtered.map(
+      ({ id, type, confidence, matrixGL, vertex }) => ({
+        id,
+        type,
+        confidence,
+        matrixGL,
+        vertex,
+      }),
+    );
 
     return { detected, lost: result.lost };
   }

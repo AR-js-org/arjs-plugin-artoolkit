@@ -50,14 +50,30 @@
         background: #999;
         cursor: default;
       }
-      #video {
+      #stage {
+        position: relative;
         display: block;
         width: 100%;
         max-width: 480px;
+        margin: 10px 0;
+      }
+      #video {
+        display: block;
+        width: 100%;
         height: auto;
         background: #000;
         border-radius: 4px;
-        margin: 10px 0;
+      }
+      /* Stretched over the video by CSS while its backing store stays at the
+         frame's native size, so marker corners can be drawn in the exact
+         coordinates the events carry, with no scaling arithmetic here. */
+      #overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
       }
     </style>
   </head>
@@ -77,7 +93,10 @@
     </div>
 
     <h3>Camera Preview:</h3>
-    <video id="video" autoplay playsinline></video>
+    <div id="stage">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
     <div id="trackedMarkers" class="status">Tracked markers: none</div>
 
     <h3>Event Log:</h3>
@@ -93,6 +112,37 @@
       const startCamBtn = document.getElementById("startCamBtn");
       const video = document.getElementById("video");
       const trackedEl = document.getElementById("trackedMarkers");
+      const overlay = document.getElementById("overlay");
+      const overlayCtx = overlay.getContext("2d");
+
+      // Latest corners per marker, keyed the way the registry is: pattern 3
+      // and barcode 3 are different markers.
+      const outlines = new Map();
+
+      /** Traces each tracked marker's square onto the overlay. */
+      function drawOutlines() {
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+        for (const vertex of outlines.values()) {
+          if (!Array.isArray(vertex) || vertex.length < 4) continue;
+
+          const [[startX, startY], ...rest] = vertex;
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(startX, startY);
+          for (const [x, y] of rest) overlayCtx.lineTo(x, y);
+          overlayCtx.closePath();
+          overlayCtx.lineWidth = 4;
+          overlayCtx.strokeStyle = "#00ff88";
+          overlayCtx.stroke();
+
+          // Corner 0 marked: the order is rotation-dependent, and that is the
+          // part anything orientation-sensitive has to get right.
+          overlayCtx.beginPath();
+          overlayCtx.arc(startX, startY, 6, 0, Math.PI * 2);
+          overlayCtx.fillStyle = "#00ff88";
+          overlayCtx.fill();
+        }
+      }
 
       function log(message) {
         const ts = new Date().toISOString();
@@ -174,16 +224,19 @@
           eventBus.on("ar:markerFound", (e) => {
             log(`FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)}`);
             trackedMarkers.add(`${e.type}:${e.markerId}`);
+            outlines.set(`${e.type}:${e.markerId}`, e.vertex);
             updateTrackedMarkers();
           });
           eventBus.on("ar:markerUpdated", (e) => {
             log(`UPDATED ${e.type}:${e.markerId}`);
             trackedMarkers.add(`${e.type}:${e.markerId}`);
+            outlines.set(`${e.type}:${e.markerId}`, e.vertex);
             updateTrackedMarkers();
           });
           eventBus.on("ar:markerLost", (e) => {
             log(`LOST ${e.type}:${e.markerId}`);
             trackedMarkers.delete(`${e.type}:${e.markerId}`);
+            outlines.delete(`${e.type}:${e.markerId}`);
             updateTrackedMarkers();
           });
 
@@ -232,6 +285,18 @@
               width: canvas.width,
               height: canvas.height,
             });
+            // Match the frame's own pixel grid, which is the space vertex
+            // coordinates are expressed in. Assigning width clears the canvas,
+            // so only do it when the camera resolution actually changes.
+            if (
+              overlay.width !== canvas.width ||
+              overlay.height !== canvas.height
+            ) {
+              overlay.width = canvas.width;
+              overlay.height = canvas.height;
+            }
+            drawOutlines();
+
             if (!framesFlowing) {
               framesFlowing = true;
               loadMarkerBtn.disabled = false;

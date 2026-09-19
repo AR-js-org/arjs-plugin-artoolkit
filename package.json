@@ -52,6 +52,6 @@
     "vitest": "^4.0.14"
   },
   "dependencies": {
-    "@ar-js-org/artoolkit5-ts": "^0.2.0"
+    "@ar-js-org/artoolkit5-ts": "^0.2.2"
   }
 }

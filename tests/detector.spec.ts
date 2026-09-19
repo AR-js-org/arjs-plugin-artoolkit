@@ -102,6 +102,35 @@ describe("artoolkit-detector", () => {
     expect(result.lost).toEqual([{ id: 4, type: "barcode" }]);
   });
 
+  it("forwards the detected square's corners", async () => {
+    const detector = createDetector({
+      cameraParametersUrl: "/camera_para.dat",
+    });
+    await detector.ensureReady(640, 480);
+    const vertex = [
+      [10, 20],
+      [30, 20],
+      [30, 40],
+      [10, 40],
+    ];
+    mocks.processFrame.mockReturnValue({
+      detected: [
+        {
+          id: 3,
+          type: "pattern",
+          confidence: 0.9,
+          matrixGL: new Float32Array(16),
+          vertex,
+        },
+      ],
+      lost: [],
+    });
+
+    const result = detector.detect(new Uint8ClampedArray(4));
+
+    expect(result.detected[0].vertex).toEqual(vertex);
+  });
+
   it("filters detections below minConfidence", async () => {
     const detector = createDetector({
       cameraParametersUrl: "/camera_para.dat",

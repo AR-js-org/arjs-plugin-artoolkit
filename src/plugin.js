@@ -411,6 +411,10 @@ export class ArtoolkitPlugin {
    * @param {string} detected[].type - 'pattern' or 'barcode'
    * @param {number} detected[].confidence - Match confidence, 0-1
    * @param {Float32Array} detected[].matrixGL - 4x4 column-major pose
+   * @param {Array<[number, number]>} [detected[].vertex] - The square's four
+   *   corners in frame pixel coordinates, forwarded to consumers untouched.
+   *   Absent when the detector predates artoolkit5-ts 0.2.1, so consumers must
+   *   tolerate undefined.
    * @private
    */
   _applyDetections(detected) {
@@ -434,6 +438,7 @@ export class ArtoolkitPlugin {
         type,
         matrix,
         confidence,
+        vertex: pose.vertex,
         timestamp: now,
       };
 
