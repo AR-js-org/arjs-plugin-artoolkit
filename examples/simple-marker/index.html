@@ -80,10 +80,16 @@
   <body>
     <h1>Simple Marker Example</h1>
     <p>
-      This example demonstrates loading two pattern markers (hiro and kanji)
-      from a single ARToolKit plugin instance. Each gets its own marker ID, and
-      every event logged below shows both <code>type</code> and
-      <code>markerId</code> so you can tell markers apart.
+      This example demonstrates loading two pattern markers (hiro and kanji) and
+      tracking two 3x3 barcode markers (IDs 0 and 5) from a single ARToolKit
+      plugin instance. Barcode 0 and the hiro pattern share the number 0 but are
+      different markers, so every event logged below shows both
+      <code>type</code> and <code>markerId</code>. Print 3x3 barcodes from any
+      ARToolKit 3x3 barcode generator (for example
+      <a
+        href="https://github.com/nicolocarpignoli/artoolkit-barcode-markers-collection"
+        >artoolkit-barcode-markers-collection</a
+      >).
     </p>
 
     <div id="status" class="status">Initializing...</div>
@@ -238,6 +244,11 @@
             // installed package's copy reachable at this path.
             wasmUrl:
               "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
+            // Patterns and barcodes in the same frame. trackBarcode() would
+            // switch to this mode on its own, with a warning; setting it here
+            // says so up front.
+            detectionMode: "color_and_matrix",
+            matrixCodeType: "3x3",
           });
 
           // Register listeners BEFORE enable to avoid missing early 'ready'
@@ -384,6 +395,13 @@
             const res = await plugin.loadMarker(url, 1);
             log(`${label} loaded: ${JSON.stringify(res)}`);
             loaded.push(`${label}=${res.markerId}`);
+          }
+
+          // Barcodes need no file: the ID is printed in the marker itself.
+          for (const barcodeId of [0, 5]) {
+            const res = await plugin.trackBarcode(barcodeId, 1);
+            log(`barcode tracked: ${JSON.stringify(res)}`);
+            loaded.push(`barcode=${res.markerId}`);
           }
           setStatus(
             `Markers loaded (${loaded.join(", ")}). Show either to the camera.`,

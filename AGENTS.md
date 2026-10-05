@@ -49,16 +49,35 @@ message-passing concerns belong in the worker.
 
 ## Worker message protocol
 
-| Direction     | Message            | Payload                                           |
-| ------------- | ------------------ | ------------------------------------------------- |
-| main → worker | `init`             | `{ cameraParametersUrl, wasmUrl, minConfidence }` |
-| main → worker | `loadMarker`       | `{ patternUrl, size, requestId }`                 |
-| main → worker | `processFrame`     | `{ frameId, imageBitmap, width, height }`         |
-| main → worker | `dispose`          | none                                              |
-| worker → main | `ready`            | none                                              |
-| worker → main | `loadMarkerResult` | `{ ok, markerId, size, requestId, error }`        |
-| worker → main | `detectionResult`  | `{ frameId, detected, lost }`                     |
-| worker → main | `error`            | `{ message }`                                     |
+| Direction     | Message              | Payload                                                            |
+| ------------- | -------------------- | ------------------------------------------------------------------ |
+| main → worker | `init`               | `{ cameraParametersUrl, wasmUrl, minConfidence, detectorOptions }` |
+| main → worker | `loadMarker`         | `{ patternUrl, size, requestId }`                                  |
+| main → worker | `trackBarcode`       | `{ barcodeId, size, requestId }`                                   |
+| main → worker | `configure`          | `{ opts, requestId }`                                              |
+| main → worker | `processFrame`       | `{ frameId, imageBitmap, width, height }`                          |
+| main → worker | `dispose`            | none                                                               |
+| worker → main | `ready`              | none                                                               |
+| worker → main | `loadMarkerResult`   | `{ ok, markerId, size, requestId, error }`                         |
+| worker → main | `trackBarcodeResult` | `{ ok, markerId, size, detectionMode, requestId, error }`          |
+| worker → main | `configureResult`    | `{ ok, config, requestId, error }`                                 |
+| worker → main | `detectionResult`    | `{ frameId, detected, lost }`                                      |
+| worker → main | `initError`          | `{ message }`                                                      |
+| worker → main | `error`              | `{ message }`                                                      |
+
+`initError` and `error` both become `ar:workerError`, but only `error`
+acknowledges the frame in flight. `initError` is posted from inside
+`ensureReady` while the same frame goes on to its own `detectionResult`, so
+treating it as an acknowledgement would let two frames into flight.
+
+Requests carrying a `requestId` go through `plugin._request`, which resolves
+with the `*Result` payload minus `ok`/`requestId`, or rejects on `ok: false`
+or after 10 s.
+
+`trackBarcode` and `configure` do not wait for readiness: the detector queues
+them and applies them when the state is created — configuration first, then
+barcodes, because barcodes are only detected in a matrix-capable
+`detectionMode`. `trackBarcode` switches the mode to one if needed.
 
 `detected` entries are `{ id, type, confidence, matrixGL, vertex, dir }`; `lost` entries are
 `{ id, type }`. These use `id` rather than `markerId` because they mirror
@@ -148,18 +167,26 @@ Anything keyed on the bare ID will make pattern 3 and barcode 3 collide.
 
 `ar:markerLost` is debounced, not immediate. The detector routinely fails to
 report a well-tracked marker on an isolated frame — angle, motion blur,
-lighting — so `_applyLost` requires `lostThreshold` **consecutive** frames of
-the library reporting a marker missing before it fires. Each registry entry
-carries a `consecutiveMisses` counter that `_applyLost` increments and
-`_applyDetections` resets to 0 on any sighting. While a marker is within that
-tolerance it stays in the registry and nothing is emitted; a re-detection
-during the window emits `ar:markerUpdated`, not `ar:markerFound`, since the
-marker never left as far as consumers are concerned. Only once the counter
-reaches `lostThreshold` is the entry removed and `ar:markerLost` emitted, so a
-later detection correctly starts over with `ar:markerFound`. This is separate
-from `_sweepMarkers`, which covers frames that stop arriving at all (see the
-"Lost markers" row of the Decisions table and its "Post-implementation note"
-in `docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md`).
+lighting — so `_applyMisses` requires `lostThreshold` **consecutive processed
+frames** without a marker before it fires. Each registry entry carries a
+`consecutiveMisses` counter that `_applyMisses` increments for every tracked
+marker absent from a frame's `detected`, and `_applyDetections` resets to 0 on
+any sighting. While a marker is within that tolerance it stays in the registry
+and nothing is emitted; a re-detection during the window emits
+`ar:markerUpdated`, not `ar:markerFound`. Only once the counter reaches
+`lostThreshold` is the entry removed and `ar:markerLost` emitted, so a later
+detection correctly starts over with `ar:markerFound`.
+
+The counter keys on **absence from `detected`, not on the `lost` list**.
+artoolkit5-ts reports a loss exactly once, on the frame the marker
+disappears; counting `lost` entries (as 0.2.0 did) never got past 1, so loss
+silently fell through to the sweep timer (#38). The worker still forwards
+`lost`, but the plugin does not need it.
+
+`_sweepMarkers` is a stall guard only: it reports every tracked marker lost
+when **no frame** has been acknowledged for `lostThreshold × frameDurationMs`
+(`_lastFrameAt`). It measures the pipeline, not the marker, so a slow but live
+pipeline never trips it.
 
 ## Conventions
 
@@ -182,17 +209,20 @@ load real WASM in a unit test.
 
 `src/worker/**` is excluded from coverage — it is a message pump with no logic
 worth asserting. Logic belongs in the detector or the plugin, where it can be
-tested.
+tested. Its **message shapes** are still pinned by `tests/worker.spec.ts`,
+which imports the real worker with the detector and `self` stubbed; when you
+add or change a message, update that spec and the protocol table above
+together.
 
 ## Dependencies
 
 `@ar-js-org/artoolkit5-ts` provides detection. It is data-oriented: plain
 `ARToolKitState`, pure functions, no classes, no DOM, no event emitter. The
 functions used here are `createARToolKitState`, `disposeARToolKitState`,
-`loadPatternMarker`, `trackMarker` and `processFrame`. `trackBarcodeMarker`
-exists in the library but is reserved for the barcode follow-up (see
-Non-goals in the migration spec) — it is not imported anywhere in this
-plugin.
+`loadPatternMarker`, `trackMarker`, `trackBarcodeMarker`, `configureDetector`
+and `processFrame`. Confidence filtering is done by `processFrame` from the
+per-family `minConfidence` given to `configureDetector`; the detector does not
+filter again.
 
 ## Commits
 

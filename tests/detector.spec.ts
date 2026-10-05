@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  configureDetector: vi.fn(),
+  trackBarcodeMarker: vi.fn(),
   createARToolKitState: vi.fn(),
   disposeARToolKitState: vi.fn(),
   loadPatternMarker: vi.fn(),
@@ -164,34 +166,17 @@ describe("artoolkit-detector", () => {
     expect(result.detected[0].dir).toBe(2);
   });
 
-  it("filters detections below minConfidence", async () => {
+  it("hands a numeric minConfidence to artoolkit5-ts for both families", async () => {
     const detector = createDetector({
       cameraParametersUrl: "/camera_para.dat",
-      minConfidence: 0.6,
+      minConfidence: 0.7,
     });
     await detector.ensureReady(640, 480);
-    mocks.processFrame.mockReturnValue({
-      detected: [
-        {
-          id: 1,
-          type: "pattern",
-          confidence: 0.9,
-          matrixGL: new Float32Array(16),
-        },
-        {
-          id: 2,
-          type: "pattern",
-          confidence: 0.3,
-          matrixGL: new Float32Array(16),
-        },
-      ],
-      lost: [],
-    });
 
-    const result = detector.detect(new Uint8ClampedArray(4));
-
-    expect(result.detected).toHaveLength(1);
-    expect(result.detected[0].id).toBe(1);
+    expect(mocks.configureDetector).toHaveBeenCalledWith(
+      { id: "state" },
+      { minConfidence: { pattern: 0.7, barcode: 0.7 } },
+    );
   });
 
   it("applies a 0.6 confidence floor by default, matching pre-migration behaviour", async () => {
@@ -199,28 +184,206 @@ describe("artoolkit-detector", () => {
       cameraParametersUrl: "/camera_para.dat",
     });
     await detector.ensureReady(640, 480);
+
+    expect(mocks.configureDetector).toHaveBeenCalledWith(
+      { id: "state" },
+      { minConfidence: { pattern: 0.6, barcode: 0.6 } },
+    );
+  });
+
+  it("passes a per-family minConfidence through unchanged", async () => {
+    const detector = createDetector({
+      minConfidence: { pattern: 0.6, barcode: 0.5 },
+    });
+    await detector.ensureReady(640, 480);
+
+    expect(mocks.configureDetector.mock.calls[0][1].minConfidence).toEqual({
+      pattern: 0.6,
+      barcode: 0.5,
+    });
+  });
+
+  it("forwards detections as processFrame returns them, without filtering again", async () => {
+    const detector = createDetector();
+    await detector.ensureReady(640, 480);
     mocks.processFrame.mockReturnValue({
       detected: [
         {
-          id: 1,
-          type: "pattern",
-          confidence: 0.61,
-          matrixGL: new Float32Array(16),
-        },
-        {
           id: 2,
-          type: "pattern",
-          confidence: 0.59,
+          type: "barcode",
+          confidence: 0.3,
           matrixGL: new Float32Array(16),
         },
       ],
       lost: [],
     });
 
-    const result = detector.detect(new Uint8ClampedArray(4));
+    expect(detector.detect(new Uint8ClampedArray(4)).detected).toHaveLength(1);
+  });
 
-    expect(result.detected).toHaveLength(1);
-    expect(result.detected[0].id).toBe(1);
+  describe("configure", () => {
+    it("queues options until the state exists, then applies them with the rest", async () => {
+      const detector = createDetector({
+        detectorOptions: { matrixCodeType: "4x4" },
+      });
+      detector.configure({ thresholdMode: "auto_otsu" });
+      expect(mocks.configureDetector).not.toHaveBeenCalled();
+
+      await detector.ensureReady(640, 480);
+
+      expect(mocks.configureDetector).toHaveBeenCalledTimes(1);
+      expect(mocks.configureDetector.mock.calls[0][1]).toMatchObject({
+        matrixCodeType: "4x4",
+        thresholdMode: "auto_otsu",
+      });
+    });
+
+    it("applies only the given keys once the state exists", async () => {
+      const detector = createDetector();
+      await detector.ensureReady(640, 480);
+      mocks.configureDetector.mockClear();
+
+      const config = detector.configure({ threshold: 120, minConfidence: 0.8 });
+
+      expect(mocks.configureDetector).toHaveBeenCalledWith(
+        { id: "state" },
+        { threshold: 120, minConfidence: { pattern: 0.8, barcode: 0.8 } },
+      );
+      expect(config).toMatchObject({ threshold: 120 });
+    });
+
+    it("propagates an option artoolkit5-ts rejects and keeps the old config", async () => {
+      const detector = createDetector();
+      await detector.ensureReady(640, 480);
+      mocks.configureDetector.mockImplementation(() => {
+        throw new Error("bad detectionMode");
+      });
+
+      expect(() => detector.configure({ detectionMode: "nope" })).toThrow(
+        "bad detectionMode",
+      );
+      mocks.configureDetector.mockReset();
+      expect(detector.configure({}).detectionMode).toBeUndefined();
+    });
+
+    it("reports an option rejected at initialisation once, without retrying the state", async () => {
+      mocks.configureDetector.mockImplementation(() => {
+        throw new Error("bad matrixCodeType");
+      });
+      const detector = createDetector({
+        detectorOptions: { matrixCodeType: "nope" },
+      });
+
+      await expect(detector.ensureReady(640, 480)).rejects.toThrow(
+        "bad matrixCodeType",
+      );
+      mocks.configureDetector.mockReset();
+      await expect(detector.ensureReady(640, 480)).resolves.toBe(true);
+      expect(mocks.createARToolKitState).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("trackBarcode", () => {
+    it("registers at once when ready, switching color to color_and_matrix", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const detector = createDetector();
+      await detector.ensureReady(640, 480);
+      mocks.configureDetector.mockClear();
+
+      const result = detector.trackBarcode(5, 2);
+
+      expect(result).toEqual({
+        markerId: 5,
+        size: 2,
+        detectionMode: "color_and_matrix",
+      });
+      expect(mocks.configureDetector).toHaveBeenCalledWith(
+        { id: "state" },
+        { detectionMode: "color_and_matrix" },
+      );
+      expect(mocks.trackBarcodeMarker).toHaveBeenCalledWith(
+        { id: "state" },
+        5,
+        2,
+      );
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it("keeps a mono pipeline mono", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const detector = createDetector({
+        detectorOptions: { detectionMode: "mono" },
+      });
+      expect(detector.trackBarcode(1).detectionMode).toBe("mono_and_matrix");
+      warn.mockRestore();
+    });
+
+    it("leaves a matrix-capable mode alone, without warning", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const detector = createDetector({
+        detectorOptions: { detectionMode: "matrix" },
+      });
+      expect(detector.trackBarcode(1).detectionMode).toBe("matrix");
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("queues barcodes until ready and registers them after the config", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const detector = createDetector();
+      detector.trackBarcode(0, 1);
+      detector.trackBarcode(9, 3);
+      expect(mocks.trackBarcodeMarker).not.toHaveBeenCalled();
+
+      await detector.ensureReady(640, 480);
+
+      expect(mocks.configureDetector.mock.calls[0][1].detectionMode).toBe(
+        "color_and_matrix",
+      );
+      expect(mocks.trackBarcodeMarker.mock.calls).toEqual([
+        [{ id: "state" }, 0, 1],
+        [{ id: "state" }, 9, 3],
+      ]);
+      expect(mocks.configureDetector.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.trackBarcodeMarker.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("rejects ids that are not non-negative integers", () => {
+      const detector = createDetector();
+      expect(() => detector.trackBarcode(-1)).toThrow("Invalid barcodeId");
+      expect(() => detector.trackBarcode(1.5)).toThrow("Invalid barcodeId");
+      expect(() => detector.trackBarcode(undefined)).toThrow(
+        "Invalid barcodeId",
+      );
+    });
+
+    it("refuses work after dispose", () => {
+      const detector = createDetector();
+      detector.dispose();
+      expect(() => detector.trackBarcode(1)).toThrow("Detector disposed");
+      expect(() => detector.configure({})).toThrow("Detector disposed");
+    });
+  });
+
+  it("reports only the first failed initialisation of a cycle through onInitError", async () => {
+    vi.useFakeTimers();
+    try {
+      const onInitError = vi.fn();
+      mocks.createARToolKitState.mockRejectedValue(new Error("404 wasm"));
+      const detector = createDetector({ onInitError });
+
+      await detector.ensureReady(640, 480);
+      vi.advanceTimersByTime(60000);
+      await detector.ensureReady(640, 480);
+
+      expect(mocks.createARToolKitState).toHaveBeenCalledTimes(2);
+      expect(onInitError).toHaveBeenCalledTimes(1);
+      expect(onInitError.mock.calls[0][0].message).toBe("404 wasm");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns empty results when detect is called before readiness", () => {
