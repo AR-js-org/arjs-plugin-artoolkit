@@ -26,3 +26,14 @@ jobs:
         run: npm run smoke:node
       - name: Run tests
         run: npm test
+      # CI did not build at all before this, which is why #33 reached `dev`
+      # unnoticed: nothing here had ever seen a tarball. `check:package` builds,
+      # packs with `--dry-run --json` and audits the manifest npm itself reports -
+      # entry points present, runtime chunks present, no sourcemaps (#12), nothing
+      # outside dist/ and types/ (#33).
+      #
+      # It also makes `build:types` failures visible. They were masked twice over:
+      # tsc emits despite errors because `noEmitOnError` is unset, and
+      # release.yml runs `npm run build:types || true`.
+      - name: Check what would be published
+        run: npm run check:package
