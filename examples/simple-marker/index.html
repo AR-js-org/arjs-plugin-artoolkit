@@ -50,14 +50,30 @@
         background: #999;
         cursor: default;
       }
-      #video {
+      #stage {
+        position: relative;
         display: block;
         width: 100%;
         max-width: 480px;
+        margin: 10px 0;
+      }
+      #video {
+        display: block;
+        width: 100%;
         height: auto;
         background: #000;
         border-radius: 4px;
-        margin: 10px 0;
+      }
+      /* Stretched over the video by CSS while its backing store stays at the
+         frame's native size, so marker corners can be drawn in the exact
+         coordinates the events carry, with no scaling arithmetic here. */
+      #overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
       }
     </style>
   </head>
@@ -77,7 +93,10 @@
     </div>
 
     <h3>Camera Preview:</h3>
-    <video id="video" autoplay playsinline></video>
+    <div id="stage">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
     <div id="trackedMarkers" class="status">Tracked markers: none</div>
 
     <h3>Event Log:</h3>
@@ -93,6 +112,68 @@
       const startCamBtn = document.getElementById("startCamBtn");
       const video = document.getElementById("video");
       const trackedEl = document.getElementById("trackedMarkers");
+      const overlay = document.getElementById("overlay");
+      // Checked once here rather than inside drawOutlines, which runs every
+      // frame for a condition that can only be true at startup.
+      //
+      // Reported rather than thrown, and the asymmetry is deliberate: the
+      // outline is a diagnostic on top of a working example, so losing it should
+      // not take the camera and detection down with it. The frame-grabbing
+      // canvas further down is the opposite case and does throw.
+      //
+      // Reported rather than silently skipped for the same reason: in an example
+      // whose whole point is the outline, a quiet no-op looks like detection is
+      // broken.
+      const overlayCtx = overlay ? overlay.getContext("2d") : null;
+      if (!overlayCtx) {
+        log(
+          overlay
+            ? "No 2D context for #overlay - outlines disabled, detection unaffected."
+            : "No #overlay element found - outlines disabled, detection unaffected.",
+        );
+        setStatus("Marker outlines unavailable", "error");
+      }
+
+      // Latest corners and rotation per marker, keyed the way the registry is:
+      // pattern 3 and barcode 3 are different markers.
+      const outlines = new Map();
+
+      /** Traces each tracked marker's square onto the overlay. */
+      function drawOutlines() {
+        if (!overlayCtx) return;
+
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+        for (const { vertex, dir } of outlines.values()) {
+          if (!Array.isArray(vertex) || vertex.length < 4) continue;
+
+          const [[startX, startY], ...rest] = vertex;
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(startX, startY);
+          for (const [x, y] of rest) overlayCtx.lineTo(x, y);
+          overlayCtx.closePath();
+          overlayCtx.lineWidth = 4;
+          overlayCtx.strokeStyle = "#00ff88";
+          overlayCtx.stroke();
+
+          // The marker's *own* top-left, resolved through `dir`, not vertex[0].
+          // Turn the printed marker and the dot stays on the same printed
+          // corner while the outline rotates around it; marking vertex[0]
+          // instead makes the dot hop between corners. ARToolKit's own mapping.
+          //
+          // Guarded rather than assumed: `dir` is always present from
+          // artoolkit5-ts 0.3.0, which package.json requires, but a stale
+          // node_modules or a hand-built bundle would otherwise turn a missing
+          // value into NaN and throw while destructuring.
+          const corner = Number.isInteger(dir) ? vertex[(4 - dir) % 4] : null;
+          if (!corner) continue;
+
+          overlayCtx.beginPath();
+          overlayCtx.arc(corner[0], corner[1], 6, 0, Math.PI * 2);
+          overlayCtx.fillStyle = "#00ff88";
+          overlayCtx.fill();
+        }
+      }
 
       function log(message) {
         const ts = new Date().toISOString();
@@ -172,18 +253,29 @@
             setStatus("Worker error (see console)", "error");
           });
           eventBus.on("ar:markerFound", (e) => {
-            log(`FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)}`);
+            log(
+              `FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)} dir=${e.dir}`,
+            );
             trackedMarkers.add(`${e.type}:${e.markerId}`);
+            outlines.set(`${e.type}:${e.markerId}`, {
+              vertex: e.vertex,
+              dir: e.dir,
+            });
             updateTrackedMarkers();
           });
           eventBus.on("ar:markerUpdated", (e) => {
-            log(`UPDATED ${e.type}:${e.markerId}`);
+            log(`UPDATED ${e.type}:${e.markerId} dir=${e.dir}`);
             trackedMarkers.add(`${e.type}:${e.markerId}`);
+            outlines.set(`${e.type}:${e.markerId}`, {
+              vertex: e.vertex,
+              dir: e.dir,
+            });
             updateTrackedMarkers();
           });
           eventBus.on("ar:markerLost", (e) => {
             log(`LOST ${e.type}:${e.markerId}`);
             trackedMarkers.delete(`${e.type}:${e.markerId}`);
+            outlines.delete(`${e.type}:${e.markerId}`);
             updateTrackedMarkers();
           });
 
@@ -215,6 +307,17 @@
           });
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
+          // Thrown, not degraded: without this context there are no pixels to
+          // submit, so there is nothing left for the example to demonstrate. The
+          // catch below turns it into a logged message and re-enables the button,
+          // which beats `ctx.drawImage` throwing once per animation frame from
+          // inside tick() - where it would escape this try entirely, because
+          // requestAnimationFrame reschedules outside it.
+          if (!ctx) {
+            throw new Error(
+              "Could not get a 2D context for the frame-grabbing canvas.",
+            );
+          }
           let id = 0;
 
           async function tick() {
@@ -232,6 +335,19 @@
               width: canvas.width,
               height: canvas.height,
             });
+            // Match the frame's own pixel grid, which is the space vertex
+            // coordinates are expressed in. Assigning width clears the canvas,
+            // so only do it when the camera resolution actually changes.
+            if (
+              overlayCtx &&
+              (overlay.width !== canvas.width ||
+                overlay.height !== canvas.height)
+            ) {
+              overlay.width = canvas.width;
+              overlay.height = canvas.height;
+            }
+            drawOutlines();
+
             if (!framesFlowing) {
               framesFlowing = true;
               loadMarkerBtn.disabled = false;

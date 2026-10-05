@@ -60,7 +60,7 @@ message-passing concerns belong in the worker.
 | worker → main | `detectionResult`  | `{ frameId, detected, lost }`                     |
 | worker → main | `error`            | `{ message }`                                     |
 
-`detected` entries are `{ id, type, confidence, matrixGL }`; `lost` entries are
+`detected` entries are `{ id, type, confidence, matrixGL, vertex, dir }`; `lost` entries are
 `{ id, type }`. These use `id` rather than `markerId` because they mirror
 artoolkit5-ts's `MarkerPose` shape directly; the rename to `markerId` happens at
 the event boundary in `plugin.js`.
@@ -95,13 +95,48 @@ pose that is already stale by the time it is computed.
 
 ## Event contract
 
-| Event              | Payload                                             |
-| ------------------ | --------------------------------------------------- |
-| `ar:markerFound`   | `{ markerId, type, matrix, confidence, timestamp }` |
-| `ar:markerUpdated` | `{ markerId, type, matrix, confidence, timestamp }` |
-| `ar:markerLost`    | `{ markerId, type, timestamp }`                     |
-| `ar:workerReady`   | `{}`                                                |
-| `ar:workerError`   | `{ message }`                                       |
+| Event              | Payload                                                          |
+| ------------------ | ---------------------------------------------------------------- |
+| `ar:markerFound`   | `{ markerId, type, matrix, confidence, vertex, dir, timestamp }` |
+| `ar:markerUpdated` | `{ markerId, type, matrix, confidence, vertex, dir, timestamp }` |
+| `ar:markerLost`    | `{ markerId, type, timestamp }`                                  |
+| `ar:workerReady`   | `{}`                                                             |
+| `ar:workerError`   | `{ message }`                                                    |
+
+`vertex` is the detected square's four corners, `[[x, y], …]`, in the pixel
+coordinates of the frame that was submitted — not of however the video is
+displayed. Those differ whenever the video element is rendered at anything
+other than its native size, which is the usual case; `examples/simple-marker/`
+shows the scaling. Corners are enough to outline a marker, hit-test it or mask
+it without touching the pose matrix, which is the point of the field. Unlike
+`matrix` it is freshly allocated per frame, so consumers may retain it.
+
+`dir` is the marker's rotation, 0 to 3, and is what makes `vertex` order
+interpretable. Corner order follows ARToolKit's square tracer rather than the
+printed marker, so `vertex[0]` lands on a different physical corner as the
+marker turns. The marker's own top-left is `vertex[(4 - dir) % 4]`, and the
+other three clockwise from there as `(5 - dir) % 4`, `(6 - dir) % 4`,
+`(7 - dir) % 4` — ARToolKit's own mapping, the one it feeds its pose solver.
+Outlining or hit-testing needs none of this, since any order traces the same
+quadrilateral; it matters when a specific printed corner must be identified.
+`examples/simple-marker/` marks that corner, which is the visible difference.
+
+Both fields are **well-formed or absent, never malformed**. `_applyDetections`
+checks them before emitting - `usableVertex` requires an array of four, and
+`usableDir` an integer 0 to 3 - and nothing is fabricated, so a detection that
+arrives without them emits with the keys present and the values `undefined`. The
+keys never disappear, which is what keeps this table accurate and the payload one
+shape across a per-frame path.
+
+In practice every real detection carries both: `vertex` needs artoolkit5-ts 0.2.1,
+`dir` needs 0.3.0, and `package.json` requires `^0.3.0`. The guards exist for the
+paths the range cannot cover - a detection injected in a test, a stale
+`node_modules`, a hand-built bundle - and because this function already normalises
+every other field it emits, so these two passing through raw was the anomaly.
+
+`dir` is range-checked rather than only type-checked for a specific reason: a
+negative value would make `(4 - dir) % 4` a valid index to the _wrong_ corner,
+failing silently instead of loudly.
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed, ready for
 WebGL and for `THREE.Matrix4.fromArray()`. It needs no conversion.

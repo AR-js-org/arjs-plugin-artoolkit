@@ -23,6 +23,52 @@ const ARTOOLKIT_PLUGIN_VERSION =
 
 export { ARTOOLKIT_PLUGIN_VERSION };
 
+/** Corners per detected square. ARToolKit squares always have four. */
+const SQUARE_CORNERS = 4;
+
+/** `dir` counts quarter turns, so it is one of 0, 1, 2, 3. */
+const MAX_DIR = 3;
+
+/**
+ * The square's corners if the detector reported a usable set, otherwise
+ * undefined.
+ *
+ * Checked rather than forwarded because this is where the event contract is
+ * established, and every other field in the payload is already normalised here -
+ * `matrixGL` is coerced to a Float32Array and `confidence` defaults to 0. Passing
+ * these two through raw was the odd one out.
+ *
+ * Deliberately shallow: the length is checked, the pairs inside are not. The
+ * realistic failure is the field being *absent*, from a detector that was
+ * bypassed or a stale build. Corrupt inner pairs would mean artoolkit5-ts itself
+ * is misbehaving, and quietly dropping the field would make that harder to
+ * diagnose rather than easier.
+ *
+ * @param {unknown} vertex - Whatever the worker reported.
+ * @returns {Array<[number, number]>|undefined} The corners, or undefined.
+ */
+function usableVertex(vertex) {
+  return Array.isArray(vertex) && vertex.length === SQUARE_CORNERS
+    ? vertex
+    : undefined;
+}
+
+/**
+ * The marker's rotation if the detector reported a usable one, otherwise
+ * undefined.
+ *
+ * Range-checked, not just type-checked: `dir` exists to be used as
+ * `vertex[(4 - dir) % 4]`, and a value outside 0-3 indexes outside the square.
+ * A negative `dir` is the nastier case - `(4 - -1) % 4` is 1, a valid index and
+ * the wrong corner, so it would fail silently rather than loudly.
+ *
+ * @param {unknown} dir - Whatever the worker reported.
+ * @returns {number|undefined} The rotation 0-3, or undefined.
+ */
+function usableDir(dir) {
+  return Number.isInteger(dir) && dir >= 0 && dir <= MAX_DIR ? dir : undefined;
+}
+
 /**
  * ARToolKit Plugin for marker-based augmented reality tracking.
  *
@@ -411,6 +457,16 @@ export class ArtoolkitPlugin {
    * @param {string} detected[].type - 'pattern' or 'barcode'
    * @param {number} detected[].confidence - Match confidence, 0-1
    * @param {Float32Array} detected[].matrixGL - 4x4 column-major pose
+   * @param {Array<[number, number]>} [detected[].vertex] - The square's four
+   *   corners in frame pixel coordinates. Optional on the way *in*: a detection
+   *   that was not produced by this plugin's detector may omit it.
+   * @param {number} [detected[].dir] - The marker's rotation, 0-3, which is what
+   *   makes `vertex` order interpretable. Optional on the way in, as `vertex` is.
+   *
+   * On the way *out* both are **well-formed or absent, never malformed**: see
+   * {@link usableVertex} and {@link usableDir}. Nothing is fabricated, so a
+   * detection that arrives without them emits without them rather than with
+   * invented values.
    * @private
    */
   _applyDetections(detected) {
@@ -434,6 +490,11 @@ export class ArtoolkitPlugin {
         type,
         matrix,
         confidence,
+        // Keys are always present, their values possibly undefined, so the
+        // payload keeps one shape across every frame and matches the contract
+        // table in AGENTS.md.
+        vertex: usableVertex(pose.vertex),
+        dir: usableDir(pose.dir),
         timestamp: now,
       };
 
