@@ -343,6 +343,12 @@ scaling. Corners alone are enough to outline a marker, hit-test it or mask it,
 with no pose matrix involved. Unlike `matrix` it is freshly allocated per frame,
 so you may retain it.
 
+Both fields are **well-formed or absent, never malformed**: the plugin validates
+them before emitting and never invents a value, so a detection that arrives
+without them emits `undefined` rather than something plausible. The keys are
+always on the payload. With the pinned artoolkit5-ts range every real detection
+carries both, so in normal use you can read them directly.
+
 `dir` is the marker's rotation, 0 to 3, and is what makes `vertex` order mean
 something. Corner order follows ARToolKit's square tracer, not the printed
 marker, so `vertex[0]` is a different physical corner depending on how the marker

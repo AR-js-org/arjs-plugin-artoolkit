@@ -178,6 +178,127 @@ describe("event payload contract", () => {
     await plugin.disable();
   });
 
+  // The emitted contract is "well-formed or absent, never malformed". The
+  // detections below are what a bypassed or stale detector produces; the plugin
+  // must not pass the value on, and must not invent one either.
+  describe("malformed vertex and dir are omitted rather than forwarded", () => {
+    const cases: Array<[string, unknown, unknown]> = [
+      ["vertex missing", undefined, 1],
+      ["vertex not an array", { 0: [1, 2] }, 1],
+      [
+        "vertex with too few corners",
+        [
+          [1, 2],
+          [3, 4],
+        ],
+        1,
+      ],
+      ["dir missing", null, undefined],
+      ["dir not an integer", null, 1.5],
+      ["dir above the range", null, 4],
+      // The nastiest case, and the reason dir is range-checked rather than only
+      // type-checked: (4 - -1) % 4 is 1, a perfectly valid index. A negative dir
+      // would silently resolve to the wrong corner instead of throwing.
+      ["dir negative", null, -1],
+      ["dir a numeric string", null, "2"],
+    ];
+
+    for (const [name, badVertex, badDir] of cases) {
+      it(name, async () => {
+        const plugin = new ArtoolkitPlugin({ worker: false });
+        await plugin.init(core);
+        await plugin.enable();
+
+        const found = vi.fn();
+        core.eventBus.on("ar:markerFound", found);
+
+        const goodVertex = [
+          [10, 20],
+          [30, 20],
+          [30, 40],
+          [10, 40],
+        ];
+
+        // @ts-ignore  deliberately malformed, which is the point
+        plugin._onWorkerMessage({
+          data: {
+            type: "detectionResult",
+            payload: {
+              frameId: 1,
+              detected: [
+                {
+                  id: 5,
+                  type: "pattern",
+                  confidence: 0.9,
+                  matrixGL: new Float32Array(16),
+                  vertex: badVertex === null ? goodVertex : badVertex,
+                  dir: badDir,
+                },
+              ],
+              lost: [],
+            },
+          },
+        });
+
+        const payload = found.mock.calls[0][0];
+
+        // The event still fires: a bad corner set must not cost the detection.
+        expect(payload.markerId).toBe(5);
+        expect(payload.confidence).toBe(0.9);
+
+        if (badVertex === null) {
+          expect(payload.vertex).toEqual(goodVertex);
+          expect(payload.dir).toBeUndefined();
+        } else {
+          expect(payload.vertex).toBeUndefined();
+          expect(payload.dir).toBe(1);
+        }
+
+        await plugin.disable();
+      });
+    }
+
+    it("keeps both keys on the payload even when the values are absent", async () => {
+      // AGENTS.md documents the payload as a fixed shape, and a stable shape is
+      // cheaper for the engine across a per-frame hot path. Absent means the
+      // value is undefined, not that the key is missing.
+      const plugin = new ArtoolkitPlugin({ worker: false });
+      await plugin.init(core);
+      await plugin.enable();
+
+      const found = vi.fn();
+      core.eventBus.on("ar:markerFound", found);
+
+      // @ts-ignore  no vertex and no dir at all, as most detections in these
+      // tests are written, and as a pre-0.3.0 detector would report
+      plugin._onWorkerMessage({
+        data: {
+          type: "detectionResult",
+          payload: {
+            frameId: 1,
+            detected: [
+              {
+                id: 5,
+                type: "pattern",
+                confidence: 0.9,
+                matrixGL: new Float32Array(16),
+              },
+            ],
+            lost: [],
+          },
+        },
+      });
+
+      const payload = found.mock.calls[0][0];
+      expect("vertex" in payload).toBe(true);
+      expect("dir" in payload).toBe(true);
+      expect(payload.vertex).toBeUndefined();
+      expect(payload.dir).toBeUndefined();
+
+      await plugin.disable();
+    });
+  });
+
   it("never emits ar:getMarker", async () => {
     const plugin = new ArtoolkitPlugin({ worker: false });
     await plugin.init(core);

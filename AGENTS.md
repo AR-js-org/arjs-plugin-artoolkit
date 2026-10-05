@@ -121,10 +121,22 @@ Outlining or hit-testing needs none of this, since any order traces the same
 quadrilateral; it matters when a specific printed corner must be identified.
 `examples/simple-marker/` marks that corner, which is the visible difference.
 
-Both fields are always present: `vertex` needs artoolkit5-ts 0.2.1 and `dir`
-needs 0.3.0, and `package.json` requires `^0.3.0`, so neither is optional in
-practice. Earlier versions are excluded by the range rather than tolerated at
-runtime.
+Both fields are **well-formed or absent, never malformed**. `_applyDetections`
+checks them before emitting - `usableVertex` requires an array of four, and
+`usableDir` an integer 0 to 3 - and nothing is fabricated, so a detection that
+arrives without them emits with the keys present and the values `undefined`. The
+keys never disappear, which is what keeps this table accurate and the payload one
+shape across a per-frame path.
+
+In practice every real detection carries both: `vertex` needs artoolkit5-ts 0.2.1,
+`dir` needs 0.3.0, and `package.json` requires `^0.3.0`. The guards exist for the
+paths the range cannot cover - a detection injected in a test, a stale
+`node_modules`, a hand-built bundle - and because this function already normalises
+every other field it emits, so these two passing through raw was the anomaly.
+
+`dir` is range-checked rather than only type-checked for a specific reason: a
+negative value would make `(4 - dir) % 4` a valid index to the _wrong_ corner,
+failing silently instead of loudly.
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed, ready for
 WebGL and for `THREE.Matrix4.fromArray()`. It needs no conversion.

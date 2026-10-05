@@ -113,7 +113,26 @@
       const video = document.getElementById("video");
       const trackedEl = document.getElementById("trackedMarkers");
       const overlay = document.getElementById("overlay");
-      const overlayCtx = overlay.getContext("2d");
+      // Checked once here rather than inside drawOutlines, which runs every
+      // frame for a condition that can only be true at startup.
+      //
+      // Reported rather than thrown, and the asymmetry is deliberate: the
+      // outline is a diagnostic on top of a working example, so losing it should
+      // not take the camera and detection down with it. The frame-grabbing
+      // canvas further down is the opposite case and does throw.
+      //
+      // Reported rather than silently skipped for the same reason: in an example
+      // whose whole point is the outline, a quiet no-op looks like detection is
+      // broken.
+      const overlayCtx = overlay ? overlay.getContext("2d") : null;
+      if (!overlayCtx) {
+        log(
+          overlay
+            ? "No 2D context for #overlay - outlines disabled, detection unaffected."
+            : "No #overlay element found - outlines disabled, detection unaffected.",
+        );
+        setStatus("Marker outlines unavailable", "error");
+      }
 
       // Latest corners and rotation per marker, keyed the way the registry is:
       // pattern 3 and barcode 3 are different markers.
@@ -121,6 +140,8 @@
 
       /** Traces each tracked marker's square onto the overlay. */
       function drawOutlines() {
+        if (!overlayCtx) return;
+
         overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 
         for (const { vertex, dir } of outlines.values()) {
@@ -286,6 +307,17 @@
           });
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
+          // Thrown, not degraded: without this context there are no pixels to
+          // submit, so there is nothing left for the example to demonstrate. The
+          // catch below turns it into a logged message and re-enables the button,
+          // which beats `ctx.drawImage` throwing once per animation frame from
+          // inside tick() - where it would escape this try entirely, because
+          // requestAnimationFrame reschedules outside it.
+          if (!ctx) {
+            throw new Error(
+              "Could not get a 2D context for the frame-grabbing canvas.",
+            );
+          }
           let id = 0;
 
           async function tick() {
@@ -307,8 +339,9 @@
             // coordinates are expressed in. Assigning width clears the canvas,
             // so only do it when the camera resolution actually changes.
             if (
-              overlay.width !== canvas.width ||
-              overlay.height !== canvas.height
+              overlayCtx &&
+              (overlay.width !== canvas.width ||
+                overlay.height !== canvas.height)
             ) {
               overlay.width = canvas.width;
               overlay.height = canvas.height;
