@@ -85,7 +85,7 @@ jobs:
       # `v0.3.0` whose package.json said 0.3.0 would satisfy it. Naming the tag
       # namespace makes that unreachable rather than merely unlikely.
       - name: Checkout the tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ env.TAG }}
 
@@ -101,7 +101,7 @@ jobs:
       # workflow still includes it, so this is easy to reintroduce by copying the
       # docs - see actions/setup-node#1551 and npm/documentation#1960.
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24.x"
 
