@@ -70,6 +70,24 @@ export function auditManifest({
   return { missingEntryPoints, missingRuntimeFiles, sourcemaps, unexpected };
 }
 
+/**
+ * The JSON array from npm's stdout, ignoring anything printed before it.
+ *
+ * Required, not belt-and-braces. CI sets HUSKY=0, and husky then prints
+ * `HUSKY=0 skip install` to stdout from the `prepare` script, immediately before
+ * the JSON - which is what broke this check on its first CI run. `--ignore-scripts`
+ * does not suppress it. npm also reserves the right to print notices there, so
+ * slicing from the first `[` is robust to the class rather than to one case.
+ */
+function extractJson(stdout) {
+  const start = stdout.indexOf("[");
+  if (start === -1) {
+    throw new Error(`No JSON array in npm's output:
+${stdout}`);
+  }
+  return stdout.slice(start);
+}
+
 /** Strips a leading `./` and normalises separators, so comparisons are textual. */
 function normalise(path) {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -115,11 +133,17 @@ function main() {
     process.exit(1);
   }
 
+  // `--ignore-scripts` so pack does not re-run lifecycle scripts over the tree
+  // built above. It does NOT fix the stdout contamination, which was measured:
+  // `npm pack --dry-run --json --ignore-scripts` still prints husky's
+  // `HUSKY=0 skip install` ahead of the `[`. `extractJson` is what handles that.
   const packed = JSON.parse(
-    execFileSync("npm", ["pack", "--dry-run", "--json"], {
-      encoding: "utf8",
-      shell: process.platform === "win32",
-    }),
+    extractJson(
+      execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+        encoding: "utf8",
+        shell: process.platform === "win32",
+      }),
+    ),
   );
 
   const manifest = packed[0].files.map((file) => file.path);
