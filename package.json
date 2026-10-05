@@ -12,6 +12,11 @@
       "require": "./dist/arjs-plugin-artoolkit.es.js"
     }
   },
+  "files": [
+    "dist",
+    "types",
+    "!**/*.map"
+  ],
   "scripts": {
     "build": "vite build",
     "build:types": "tsc --emitDeclarationOnly",
