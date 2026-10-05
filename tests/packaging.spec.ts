@@ -144,6 +144,21 @@ describe("package.json packaging fields", () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
+  it("declares the repository, which provenance is validated against", () => {
+    // npm cross-checks `repository.url` against the sigstore provenance bundle
+    // and rejects the publish with E422 when they disagree. Its absence is not
+    // cosmetic metadata: it blocked the 0.2.0 release outright with
+    //
+    //   Failed to validate repository information: package.json:
+    //   "repository.url" is "", expected to match
+    //   "https://github.com/AR-js-org/arjs-plugin-artoolkit" from provenance
+    //
+    // Nothing else in the build or the tests reads this field, so without an
+    // assertion the only thing that notices is a failing release.
+    const url: string = pkg.repository?.url ?? "";
+    expect(url).toContain("github.com/AR-js-org/arjs-plugin-artoolkit");
+  });
+
   it("excludes sourcemaps, which .npmignore can no longer do", () => {
     // Pins #12: once `files` is set npm stops honouring the `*.map` rules there.
     expect(files).toContain("!**/*.map");

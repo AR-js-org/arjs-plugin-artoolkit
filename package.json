@@ -47,6 +47,14 @@
   ],
   "author": "Walter Perdan @kalwalt https://github.com/kalwalt",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AR-js-org/arjs-plugin-artoolkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AR-js-org/arjs-plugin-artoolkit/issues"
+  },
+  "homepage": "https://github.com/AR-js-org/arjs-plugin-artoolkit#readme",
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.14",
     "eslint": "^9.39.1",
