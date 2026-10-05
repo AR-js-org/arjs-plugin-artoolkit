@@ -94,8 +94,8 @@ changes.
 **`corners` is no longer emitted.** The value shipped until now was malformed:
 artoolkit5-js reports `vertex` as four `[x, y]` pairs, and the plugin unpacked
 it as a flat array, producing two entries of two points each. No correct
-consumer can have depended on it. Proper corner data returns once artoolkit5-ts
-exposes `vertex` on `MarkerPose`.
+consumer can have depended on it. Proper corner data is back as `vertex` on the
+marker events, with `dir` to resolve its order — see [Events](#events-).
 
 **`getMarkerState` takes the marker family.**
 
@@ -319,13 +319,13 @@ await engine.pluginManager.enable("artoolkit");
 
 The plugin emits the following events on your engine’s event bus:
 
-| Event              | Payload                                             |
-| ------------------ | --------------------------------------------------- |
-| `ar:markerFound`   | `{ markerId, type, matrix, confidence, timestamp }` |
-| `ar:markerUpdated` | `{ markerId, type, matrix, confidence, timestamp }` |
-| `ar:markerLost`    | `{ markerId, type, timestamp }`                     |
-| `ar:workerReady`   | `{}`                                                |
-| `ar:workerError`   | `{ message }`                                       |
+| Event              | Payload                                                          |
+| ------------------ | ---------------------------------------------------------------- |
+| `ar:markerFound`   | `{ markerId, type, matrix, confidence, vertex, dir, timestamp }` |
+| `ar:markerUpdated` | `{ markerId, type, matrix, confidence, vertex, dir, timestamp }` |
+| `ar:markerLost`    | `{ markerId, type, timestamp }`                                  |
+| `ar:workerReady`   | `{}`                                                             |
+| `ar:workerError`   | `{ message }`                                                    |
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed — ready for
 WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
@@ -335,12 +335,38 @@ WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
 independent ID registries, so a barcode marker and a pattern marker can both
 report `markerId: 0` while being two different markers.
 
+`vertex` is the detected square's four corners as `[[x, y], …]`, in the pixel
+coordinates of the **frame you submitted** — not of however the video is
+displayed. Those differ whenever the video is rendered at anything other than its
+native size, which is the usual case; `examples/simple-marker/` shows the
+scaling. Corners alone are enough to outline a marker, hit-test it or mask it,
+with no pose matrix involved. Unlike `matrix` it is freshly allocated per frame,
+so you may retain it.
+
+`dir` is the marker's rotation, 0 to 3, and is what makes `vertex` order mean
+something. Corner order follows ARToolKit's square tracer, not the printed
+marker, so `vertex[0]` is a different physical corner depending on how the marker
+is turned. To name a corner:
+
+```js
+const topLeft = vertex[(4 - dir) % 4];
+```
+
+with the rest clockwise from there as `(5 - dir) % 4`, `(6 - dir) % 4` and
+`(7 - dir) % 4`. That is ARToolKit's own mapping — the one it feeds its pose
+solver — not a convention invented here. Outlining and hit-testing need none of
+it, since any order traces the same quadrilateral; it matters when a specific
+printed corner has to be identified, such as anchoring a label or mapping a
+texture.
+
 ```js
 // Marker first detected
 engine.eventBus.on(
   "ar:markerFound",
-  ({ markerId, type, matrix, confidence, timestamp }) => {
+  ({ markerId, type, matrix, confidence, vertex, dir, timestamp }) => {
     // matrix is Float32Array(16)
+    // vertex is [[x, y], [x, y], [x, y], [x, y]] in submitted-frame pixels
+    // the marker's own top-left corner is vertex[(4 - dir) % 4]
   },
 );
 

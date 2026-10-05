@@ -131,6 +131,39 @@ describe("artoolkit-detector", () => {
     expect(result.detected[0].vertex).toEqual(vertex);
   });
 
+  it("forwards the marker's rotation alongside the corners", async () => {
+    // `dir` is what makes the corner order interpretable, so it has to survive
+    // the same projection `vertex` does. Asserting a non-zero value: 0 is the
+    // value `(4 - dir) % 4` treats as the identity, so a dropped field would
+    // look correct under that formula.
+    const detector = createDetector({
+      cameraParametersUrl: "/camera_para.dat",
+    });
+    await detector.ensureReady(640, 480);
+    mocks.processFrame.mockReturnValue({
+      detected: [
+        {
+          id: 3,
+          type: "pattern",
+          confidence: 0.9,
+          matrixGL: new Float32Array(16),
+          vertex: [
+            [10, 20],
+            [30, 20],
+            [30, 40],
+            [10, 40],
+          ],
+          dir: 2,
+        },
+      ],
+      lost: [],
+    });
+
+    const result = detector.detect(new Uint8ClampedArray(4));
+
+    expect(result.detected[0].dir).toBe(2);
+  });
+
   it("filters detections below minConfidence", async () => {
     const detector = createDetector({
       cameraParametersUrl: "/camera_para.dat",

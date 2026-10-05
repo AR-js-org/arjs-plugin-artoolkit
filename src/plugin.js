@@ -413,8 +413,8 @@ export class ArtoolkitPlugin {
    * @param {Float32Array} detected[].matrixGL - 4x4 column-major pose
    * @param {Array<[number, number]>} [detected[].vertex] - The square's four
    *   corners in frame pixel coordinates, forwarded to consumers untouched.
-   *   Absent when the detector predates artoolkit5-ts 0.2.1, so consumers must
-   *   tolerate undefined.
+   * @param {number} [detected[].dir] - The marker's rotation, 0-3, which is
+   *   what makes `vertex` order interpretable. Forwarded untouched.
    * @private
    */
   _applyDetections(detected) {
@@ -439,6 +439,7 @@ export class ArtoolkitPlugin {
         matrix,
         confidence,
         vertex: pose.vertex,
+        dir: pose.dir,
         timestamp: now,
       };
 

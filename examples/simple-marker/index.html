@@ -115,15 +115,15 @@
       const overlay = document.getElementById("overlay");
       const overlayCtx = overlay.getContext("2d");
 
-      // Latest corners per marker, keyed the way the registry is: pattern 3
-      // and barcode 3 are different markers.
+      // Latest corners and rotation per marker, keyed the way the registry is:
+      // pattern 3 and barcode 3 are different markers.
       const outlines = new Map();
 
       /** Traces each tracked marker's square onto the overlay. */
       function drawOutlines() {
         overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 
-        for (const vertex of outlines.values()) {
+        for (const { vertex, dir } of outlines.values()) {
           if (!Array.isArray(vertex) || vertex.length < 4) continue;
 
           const [[startX, startY], ...rest] = vertex;
@@ -135,10 +135,20 @@
           overlayCtx.strokeStyle = "#00ff88";
           overlayCtx.stroke();
 
-          // Corner 0 marked: the order is rotation-dependent, and that is the
-          // part anything orientation-sensitive has to get right.
+          // The marker's *own* top-left, resolved through `dir`, not vertex[0].
+          // Turn the printed marker and the dot stays on the same printed
+          // corner while the outline rotates around it; marking vertex[0]
+          // instead makes the dot hop between corners. ARToolKit's own mapping.
+          //
+          // Guarded rather than assumed: `dir` is always present from
+          // artoolkit5-ts 0.3.0, which package.json requires, but a stale
+          // node_modules or a hand-built bundle would otherwise turn a missing
+          // value into NaN and throw while destructuring.
+          const corner = Number.isInteger(dir) ? vertex[(4 - dir) % 4] : null;
+          if (!corner) continue;
+
           overlayCtx.beginPath();
-          overlayCtx.arc(startX, startY, 6, 0, Math.PI * 2);
+          overlayCtx.arc(corner[0], corner[1], 6, 0, Math.PI * 2);
           overlayCtx.fillStyle = "#00ff88";
           overlayCtx.fill();
         }
@@ -222,15 +232,23 @@
             setStatus("Worker error (see console)", "error");
           });
           eventBus.on("ar:markerFound", (e) => {
-            log(`FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)}`);
+            log(
+              `FOUND ${e.type}:${e.markerId} cf=${e.confidence.toFixed(2)} dir=${e.dir}`,
+            );
             trackedMarkers.add(`${e.type}:${e.markerId}`);
-            outlines.set(`${e.type}:${e.markerId}`, e.vertex);
+            outlines.set(`${e.type}:${e.markerId}`, {
+              vertex: e.vertex,
+              dir: e.dir,
+            });
             updateTrackedMarkers();
           });
           eventBus.on("ar:markerUpdated", (e) => {
-            log(`UPDATED ${e.type}:${e.markerId}`);
+            log(`UPDATED ${e.type}:${e.markerId} dir=${e.dir}`);
             trackedMarkers.add(`${e.type}:${e.markerId}`);
-            outlines.set(`${e.type}:${e.markerId}`, e.vertex);
+            outlines.set(`${e.type}:${e.markerId}`, {
+              vertex: e.vertex,
+              dir: e.dir,
+            });
             updateTrackedMarkers();
           });
           eventBus.on("ar:markerLost", (e) => {

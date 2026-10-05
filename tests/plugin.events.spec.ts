@@ -90,6 +90,94 @@ describe("event payload contract", () => {
     await plugin.disable();
   });
 
+  it("carries the rotation on found and on updated", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    await plugin.enable();
+
+    const found = vi.fn();
+    const updated = vi.fn();
+    core.eventBus.on("ar:markerFound", found);
+    core.eventBus.on("ar:markerUpdated", updated);
+
+    const detected = [
+      {
+        id: 5,
+        type: "pattern",
+        confidence: 0.9,
+        matrixGL: new Float32Array(16),
+        vertex: [
+          [10, 20],
+          [30, 20],
+          [30, 40],
+          [10, 40],
+        ],
+        // Non-zero deliberately: `(4 - dir) % 4` is the identity at 0, so a
+        // dropped field would still resolve to a plausible-looking corner.
+        dir: 3,
+      },
+    ];
+
+    for (const frameId of [1, 2]) {
+      // @ts-ignore
+      plugin._onWorkerMessage({
+        data: {
+          type: "detectionResult",
+          payload: { frameId, detected, lost: [] },
+        },
+      });
+    }
+
+    expect(found.mock.calls[0][0].dir).toBe(3);
+    expect(updated.mock.calls[0][0].dir).toBe(3);
+
+    await plugin.disable();
+  });
+
+  it("resolves the marker's own top-left corner from vertex and dir", async () => {
+    // The point of shipping both fields together: a consumer can name a printed
+    // corner. This is the formula examples/simple-marker/ draws, pinned so a
+    // change to either field that breaks the pairing is caught here.
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    await plugin.enable();
+
+    const found = vi.fn();
+    core.eventBus.on("ar:markerFound", found);
+
+    // @ts-ignore
+    plugin._onWorkerMessage({
+      data: {
+        type: "detectionResult",
+        payload: {
+          frameId: 1,
+          detected: [
+            {
+              id: 5,
+              type: "pattern",
+              confidence: 0.9,
+              matrixGL: new Float32Array(16),
+              vertex: [
+                [10, 20],
+                [30, 20],
+                [30, 40],
+                [10, 40],
+              ],
+              dir: 1,
+            },
+          ],
+          lost: [],
+        },
+      },
+    });
+
+    const { vertex, dir } = found.mock.calls[0][0];
+    // dir 1 -> (4 - 1) % 4 -> vertex[3]
+    expect(vertex[(4 - dir) % 4]).toEqual([10, 40]);
+
+    await plugin.disable();
+  });
+
   it("never emits ar:getMarker", async () => {
     const plugin = new ArtoolkitPlugin({ worker: false });
     await plugin.init(core);
