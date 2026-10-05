@@ -1,31 +1,29 @@
 /**
- * @fileoverview Matrix conversion utilities for ARToolKit ↔ Three.js transformations
- *
- * Provides coordinate system conversion helpers for transforming ARToolKit
- * modelView matrices into Three.js-compatible matrix format.
+ * @fileoverview Matrix helpers for ARToolKit poses.
  */
 
 /**
- * Converts an ARToolKit modelView matrix to Three.js Matrix4 compatible format.
+ * Copy a 16-element pose matrix into a fresh `Float32Array`.
  *
- * ARToolKit and Three.js may use different coordinate conventions (row-major vs column-major).
- * This function handles the transformation to ensure proper rendering in Three.js scenes.
+ * @deprecated No conversion is needed for poses from artoolkit5-ts. The
+ * `matrix` field on `ar:markerFound` and `ar:markerUpdated` is already
+ * `matrixGL`: 4x4 column-major right-handed, ready for WebGL and for
+ * `THREE.Matrix4.fromArray()`. This function now only makes a defensive copy,
+ * and is kept so existing callers do not break. It will be removed in a future
+ * release.
  *
- * @param {Float32Array|Array<number>} modelViewArray - 16-element matrix from ARToolKit
- *        representing the marker's pose in camera space
- * @returns {Float32Array} 16-element matrix ready for THREE.Matrix4.fromArray()
+ * @param {Float32Array|Array<number>} modelViewArray - 16-element pose matrix
+ * @returns {Float32Array} A copy of the input
  *
  * @example
- * const arMatrix = new Float32Array(16); // from ARToolKit detection
- * const threeMatrix = convertModelViewToThreeMatrix(arMatrix);
- * threeObject.matrix.fromArray(threeMatrix);
- *
- * @note Concrete conversion logic will be refined when fully integrating artoolkit5-js
+ * // Preferred: use the event payload directly.
+ * eventBus.on('ar:markerFound', ({ matrix }) => {
+ *   object.matrixAutoUpdate = false;
+ *   object.matrix.fromArray(matrix);
+ * });
  */
 export function convertModelViewToThreeMatrix(modelViewArray) {
   const out = new Float32Array(16);
-  // TODO: Apply coordinate system transformation if needed
-  // Currently passes through; adjust based on artoolkit5-js conventions
   for (let i = 0; i < 16; i++) out[i] = modelViewArray[i];
   return out;
 }

@@ -8,32 +8,6 @@ describe("ArtoolkitPlugin (extra coverage)", () => {
     core = { eventBus: createEventBus() };
   });
 
-  it("forwards ar:getMarker payloads to the event bus", async () => {
-    const plugin = new ArtoolkitPlugin({ worker: false });
-    await plugin.init(core);
-
-    const handler = vi.fn();
-    core.eventBus.on("ar:getMarker", handler);
-
-    // @ts-ignore private use for testing
-    plugin._onWorkerMessage({
-      data: {
-        type: "getMarker",
-        payload: {
-          type: 0,
-          matrix: new Array(16).fill(1),
-          marker: { idPatt: 7, cfPatt: 0.9 },
-        },
-      },
-    });
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    const payload = handler.mock.calls[0][0];
-    expect(
-      Array.isArray(payload.matrix) || payload.matrix instanceof Float32Array,
-    ).toBeTruthy();
-  });
-
   it("emits ar:workerError on error messages", async () => {
     const plugin = new ArtoolkitPlugin({ worker: false });
     await plugin.init(core);
@@ -62,21 +36,38 @@ describe("ArtoolkitPlugin (extra coverage)", () => {
     const lost = vi.fn();
     core.eventBus.on("ar:markerLost", lost);
 
-    // Seed a marker that was seen long ago
-    // @ts-ignore access internals for test
-    plugin._markers.set(123, {
-      lastSeen: Date.now() - 10,
-      visible: true,
-      lostCount: 0,
+    // Seed a marker through the real detectionResult path, then age it out.
+    // @ts-ignore private method used intentionally for test
+    plugin._onWorkerMessage({
+      data: {
+        type: "detectionResult",
+        payload: {
+          frameId: 1,
+          detected: [
+            {
+              id: 123,
+              type: "pattern",
+              confidence: 0.9,
+              matrixGL: new Float32Array(16),
+            },
+          ],
+          lost: [],
+        },
+      },
     });
+
+    // Backdate lastSeen so the marker reads as stale to the sweep.
+    const state = plugin.getMarkerState(123, "pattern");
+    state.lastSeen = Date.now() - 10;
 
     // @ts-ignore invoke internal sweep
     plugin._sweepMarkers();
 
     expect(lost).toHaveBeenCalledTimes(1);
-    expect(lost.mock.calls[0][0].id).toBe(123);
+    expect(lost.mock.calls[0][0].markerId).toBe(123);
+    expect(lost.mock.calls[0][0].type).toBe("pattern");
     // marker removed
-    expect(plugin.getMarkerState(123)).toBeNull();
+    expect(plugin.getMarkerState(123, "pattern")).toBeNull();
   });
 
   it("posts processFrame for imageBitmap frames", async () => {

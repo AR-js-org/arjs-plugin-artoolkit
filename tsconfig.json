@@ -15,6 +15,21 @@
     "emitDeclarationOnly": true,
     /* Module Resolution Options */
     "moduleResolution": "nodenext",
+    // Do not type-check dependencies' .d.ts files. artoolkit5-ts is built with
+    // `moduleResolution: "Bundler"`, so its declarations import siblings without
+    // a file extension (`from './domain'`). That is invalid under nodenext, so
+    // every one of them is reported as TS2834 and `build:types` exits non-zero -
+    // nine errors, all in node_modules, none in this repository's own code.
+    //
+    // tsc still emits, because `noEmitOnError` is not set, which is why nothing
+    // visibly broke: `release.yml` runs `npm run build:types || true` and the
+    // swallowed failure went unnoticed. That masking is load-bearing today and
+    // must not be: `main`'s release workflow drops the `|| true` (see #30), so
+    // merging it would start failing the release on a dependency's declarations.
+    //
+    // artoolkit5-ts sets this in its own tsconfig for the same reason. The
+    // upstream fix is for it to emit extension-ful declaration imports.
+    "skipLibCheck": true,
     // Types should go into this directory.
     // Removing this would place the .d.ts files
     // next to the .js files

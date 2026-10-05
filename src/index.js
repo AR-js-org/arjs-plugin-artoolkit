@@ -1,8 +1,9 @@
 /**
  * @fileoverview ARToolKit Plugin for AR.js - Main entry point
  *
- * Exports the core ArtoolkitPlugin class for marker-based AR tracking
- * and utility functions for coordinate system transformations.
+ * Exports the core ArtoolkitPlugin class for marker-based AR tracking, the
+ * build-time version constant, and a deprecated pose-matrix helper kept only
+ * for backward compatibility (see `convertModelViewToThreeMatrix` below).
  *
  * @module arjs-plugin-artoolkit
  */
@@ -20,7 +21,9 @@ export { ArtoolkitPlugin } from "./plugin.js";
 export { ARTOOLKIT_PLUGIN_VERSION } from "./plugin.js";
 
 /**
- * Converts ARToolKit modelView matrices to Three.js compatible format.
- * Handles coordinate system differences between ARToolKit and Three.js.
+ * Copies a 16-element pose matrix.
+ *
+ * @deprecated Poses from artoolkit5-ts need no conversion; the `matrix` field
+ * on marker events is already WebGL-ready.
  */
 export { convertModelViewToThreeMatrix } from "./utils/matrix.js";
