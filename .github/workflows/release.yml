@@ -38,10 +38,10 @@ jobs:
       HUSKY: 0
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: "npm"
@@ -73,7 +73,7 @@ jobs:
           fi
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-artifacts
           path: |
@@ -92,10 +92,16 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
+      # v8 here against upload-artifact's v7 above is the current pair, not a
+      # typo: the two actions have drifted in major version. The compatibility
+      # boundary is v3 -> v4, where the artifact backend changed - download's own
+      # README treats `v4+` as one family. This handoff only runs on a tag push, so
+      # CI does not exercise it; if a release ever fails here, pinning both back to
+      # v4 is the one-line fallback.
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-artifacts
 
