@@ -20,6 +20,7 @@
   "scripts": {
     "build": "vite build",
     "build:types": "tsc --emitDeclarationOnly",
+    "check:package": "npm run build && npm run build:types && node dev/check-package-contents.mjs",
     "prepublishOnly": "npm run build && npm run build:types",
     "coverage": "vitest run --coverage",
     "format": "prettier --write .",
