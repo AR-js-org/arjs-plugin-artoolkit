@@ -26,7 +26,7 @@ npm run build         # vite library build
 npm run build:types   # tsc --emitDeclarationOnly
 npm run format        # prettier --write .
 npm run format:check  # prettier --check .
-npm run lint          # eslint (currently non-functional: no flat config yet; see follow-up issue)
+npm run lint          # eslint (flat config in eslint.config.js)
 npm run smoke:node    # dev/smoke-node.js lifecycle smoke test
 npm run smoke:browser # http-server on :8080 for examples/
 ```
