@@ -213,3 +213,62 @@ describe("lost-marker debounce", () => {
     await plugin.disable();
   });
 });
+
+/**
+ * A frame the worker acknowledged without analysing it - no ImageBitmap
+ * reached it, or the detector did not exist yet - says nothing about which
+ * markers are in view. It must not count as a miss, and it must not count as
+ * a processed frame for the stall guard either.
+ */
+describe("skipped frames (Qodo review on #43)", () => {
+  function message(payload: Record<string, unknown>) {
+    return { data: { type: "detectionResult", payload } };
+  }
+  const pose = {
+    id: 1,
+    type: "pattern",
+    confidence: 0.9,
+    matrixGL: new Float32Array(16),
+  };
+
+  it("do not count as missed frames", async () => {
+    const core = { eventBus: createEventBus() };
+    const plugin = new ArtoolkitPlugin({ worker: false, lostThreshold: 2 });
+    await plugin.init(core);
+    const lost = vi.fn();
+    core.eventBus.on("ar:markerLost", lost);
+
+    // @ts-ignore private handler
+    plugin._onWorkerMessage(
+      message({ frameId: 1, detected: [pose], lost: [] }),
+    );
+    for (let frameId = 2; frameId < 6; frameId++) {
+      // @ts-ignore private handler
+      plugin._frameInFlight = true;
+      // @ts-ignore private handler
+      plugin._onWorkerMessage(
+        message({ frameId, detected: [], lost: [], skipped: true }),
+      );
+      // @ts-ignore private
+      expect(plugin._frameInFlight).toBe(false);
+    }
+
+    expect(lost).not.toHaveBeenCalled();
+    expect(plugin.getMarkerState(1, "pattern")).toBeTruthy();
+  });
+
+  it("do not hold off the stall guard", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init({ eventBus: createEventBus() });
+    // @ts-ignore private
+    plugin._lastFrameAt = 1234;
+
+    // @ts-ignore private handler
+    plugin._onWorkerMessage(
+      message({ frameId: 1, detected: [], lost: [], skipped: true }),
+    );
+
+    // @ts-ignore private
+    expect(plugin._lastFrameAt).toBe(1234);
+  });
+});

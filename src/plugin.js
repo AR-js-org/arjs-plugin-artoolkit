@@ -645,6 +645,10 @@ export class ArtoolkitPlugin {
       this.core?.eventBus?.emit("ar:workerReady", {});
     } else if (type === "detectionResult") {
       this._frameInFlight = false;
+      // A frame acknowledged without being analysed (no ImageBitmap, or no
+      // detector yet) says nothing about which markers are in view: it is not
+      // a miss, and not a processed frame for the stall guard either.
+      if (payload?.skipped) return;
       this._lastFrameAt = Date.now();
       if (!payload) return;
       this._applyMisses(this._applyDetections(payload.detected));

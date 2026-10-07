@@ -61,7 +61,7 @@ message-passing concerns belong in the worker.
 | worker → main | `loadMarkerResult`   | `{ ok, markerId, size, requestId, error }`                         |
 | worker → main | `trackBarcodeResult` | `{ ok, markerId, size, detectionMode, requestId, error }`          |
 | worker → main | `configureResult`    | `{ ok, config, requestId, error }`                                 |
-| worker → main | `detectionResult`    | `{ frameId, detected, lost }`                                      |
+| worker → main | `detectionResult`    | `{ frameId, detected, lost, skipped? }`                            |
 | worker → main | `initError`          | `{ message }`                                                      |
 | worker → main | `error`              | `{ message }`                                                      |
 
@@ -103,7 +103,10 @@ must be called only after at least one frame has reached the worker.
 `detectionResult` is sent exactly once per `processFrame` received, always —
 including when both `detected` and `lost` are empty, and for a frame the
 worker skips outright (no `ImageBitmap` on the payload, or the detector not
-yet constructed). This acknowledgement is load-bearing, not a courtesy:
+yet constructed). A skipped frame carries `skipped: true`: the plugin releases
+the in-flight slot but does not read its empty lists as every marker going
+missing, nor count it as a processed frame for the stall guard. This
+acknowledgement is load-bearing, not a courtesy:
 `src/plugin.js` allows only one frame in flight at a time and relies on it
 arriving to release the next one (see `_onEngineUpdate` and
 `_onWorkerMessage`). A `processFrame` that went unacknowledged would wedge

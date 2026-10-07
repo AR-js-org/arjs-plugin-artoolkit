@@ -174,6 +174,13 @@ describe("worker message protocol", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("acknowledges a frame it cannot analyse as skipped", async () => {
+    expect(await send("processFrame", { frameId: 4 })).toEqual({
+      type: "detectionResult",
+      payload: { frameId: 4, detected: [], lost: [], skipped: true },
+    });
+  });
+
   it("closes the bitmap and posts error when readiness throws (#28)", async () => {
     const close = vi.fn();
     detector.ensureReady.mockRejectedValue(new Error("bad option"));
