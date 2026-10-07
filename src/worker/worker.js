@@ -76,6 +76,18 @@ self.addEventListener("message", async (ev) => {
           cameraParametersUrl: payload?.cameraParametersUrl ?? undefined,
           wasmUrl: payload?.wasmUrl ?? undefined,
           minConfidence: payload?.minConfidence ?? undefined,
+          detectorOptions: payload?.detectorOptions ?? undefined,
+          // Not an `error` message: that one also acknowledges the frame in
+          // flight, and this frame is still acknowledged by its own
+          // detectionResult. A second acknowledgement would let two frames
+          // into flight.
+          onInitError: (err) =>
+            sendMessage({
+              type: "initError",
+              payload: {
+                message: `ARToolKit initialisation failed (check wasmUrl and cameraParametersUrl): ${err?.message || err}`,
+              },
+            }),
         });
       }
 
@@ -127,6 +139,42 @@ self.addEventListener("message", async (ev) => {
       return;
     }
 
+    if (type === "configure" || type === "trackBarcode") {
+      const { requestId } = payload || {};
+      const resultType = `${type}Result`;
+
+      if (!detector) {
+        sendMessage({
+          type: resultType,
+          payload: { ok: false, error: "Detector not initialised", requestId },
+        });
+        return;
+      }
+
+      // Before the first frame these settle only once the detector applies
+      // them, so the reply says whether the request was accepted. The
+      // listener is async, so frames keep flowing meanwhile.
+      try {
+        const result =
+          type === "configure"
+            ? { config: await detector.configure(payload?.opts) }
+            : await detector.trackBarcode(
+                payload?.barcodeId,
+                payload?.size ?? 1,
+              );
+        sendMessage({
+          type: resultType,
+          payload: { ok: true, ...result, requestId },
+        });
+      } catch (err) {
+        sendMessage({
+          type: resultType,
+          payload: { ok: false, error: err?.message || String(err), requestId },
+        });
+      }
+      return;
+    }
+
     if (type === "processFrame") {
       const { frameId, imageBitmap, width, height } = payload || {};
       if (!imageBitmap || !detector) {
@@ -144,12 +192,17 @@ self.addEventListener("message", async (ev) => {
       const w = width || imageBitmap.width || 640;
       const h = height || imageBitmap.height || 480;
 
-      await detector.ensureReady(w, h);
-      ensureCanvas(w, h);
+      // ensureReady and ensureCanvas can both throw; the bitmap is a
+      // full-resolution buffer and must be released either way.
+      try {
+        await detector.ensureReady(w, h);
+        ensureCanvas(w, h);
 
-      offscreenCtx.clearRect(0, 0, w, h);
-      offscreenCtx.drawImage(imageBitmap, 0, 0, w, h);
-      imageBitmap.close?.();
+        offscreenCtx.clearRect(0, 0, w, h);
+        offscreenCtx.drawImage(imageBitmap, 0, 0, w, h);
+      } finally {
+        imageBitmap.close?.();
+      }
 
       const pixels = offscreenCtx.getImageData(0, 0, w, h).data;
       const { detected, lost } = detector.detect(pixels);

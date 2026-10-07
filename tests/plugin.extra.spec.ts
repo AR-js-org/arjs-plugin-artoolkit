@@ -24,7 +24,7 @@ describe("ArtoolkitPlugin (extra coverage)", () => {
     expect(errListener.mock.calls[0][0]).toEqual({ message: "boom" });
   });
 
-  it("sweeps markers and emits ar:markerLost when lastSeen is stale", async () => {
+  it("sweeps markers and emits ar:markerLost when frame processing has stalled", async () => {
     const plugin = new ArtoolkitPlugin({
       worker: false,
       lostThreshold: 1,
@@ -56,9 +56,10 @@ describe("ArtoolkitPlugin (extra coverage)", () => {
       },
     });
 
-    // Backdate lastSeen so the marker reads as stale to the sweep.
-    const state = plugin.getMarkerState(123, "pattern");
-    state.lastSeen = Date.now() - 10;
+    // Backdate the last processed frame so the pipeline reads as stalled:
+    // the sweep measures the stall, not the marker (#38).
+    // @ts-ignore private field
+    plugin._lastFrameAt = Date.now() - 10;
 
     // @ts-ignore invoke internal sweep
     plugin._sweepMarkers();
