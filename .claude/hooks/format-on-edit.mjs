@@ -4,7 +4,7 @@
 // separate pass. Never blocks: problems are reported back as context only.
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { extname, relative } from "node:path";
+import { extname, isAbsolute, relative } from "node:path";
 
 const input = JSON.parse(readFileSync(0, "utf8") || "{}");
 const file = input.tool_input?.file_path;
@@ -15,6 +15,8 @@ const rel = relative(cwd, file);
 // Outside the repo, or in generated/vendored output: leave it alone.
 if (
   rel.startsWith("..") ||
+  // On Windows a file on another drive has no relative path at all.
+  isAbsolute(rel) ||
   /(^|[/\\])(node_modules|dist|types|coverage|vendor)[/\\]/.test(rel)
 ) {
   process.exit(0);
