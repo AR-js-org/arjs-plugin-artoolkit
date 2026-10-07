@@ -62,6 +62,10 @@ the release assets.
 `dist/` and `types/` are built by the workflows. A manual `npm publish` works
 but carries no provenance attestation (0.1.3 has none for that reason).
 
+Do not commit them either. Both are gitignored, and the version-bump commit
+before a tag carries no build output: never `git add -f` `dist/` or `types/`
+into it.
+
 ## Known failure modes
 
 - If `release.yml` fails at _Download build artifacts_, pin
