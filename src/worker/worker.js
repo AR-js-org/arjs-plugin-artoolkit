@@ -181,10 +181,12 @@ self.addEventListener("message", async (ev) => {
         // Still acknowledge: the plugin's in-flight flag is only cleared by
         // a detectionResult (or error) arriving, so a silent return here -
         // with no imageBitmap to close and nothing detected - would leave it
-        // stuck forever and stop frame submission for good.
+        // stuck forever and stop frame submission for good. `skipped` says
+        // nothing was analysed, so the plugin does not read the empty lists
+        // as every marker going missing.
         sendMessage({
           type: "detectionResult",
-          payload: { frameId, detected: [], lost: [] },
+          payload: { frameId, detected: [], lost: [], skipped: true },
         });
         return;
       }
