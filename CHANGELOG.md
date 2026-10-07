@@ -50,6 +50,9 @@ Planned as 0.3.0. No breaking API changes.
   `configureDetector` calls at once instead of at their timeout.
 - An invalid constructor option no longer prevents queued barcodes from being
   registered.
+- A frame the worker cannot analyse (no `ImageBitmap`) no longer counts as a
+  missed frame, so it cannot fire `ar:markerLost` for markers still in view
+  (#46).
 
 ### Development
 
