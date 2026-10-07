@@ -21,7 +21,8 @@ a workflow that creates the tag itself. Two independent workflows fire on
 1. **The version bump is manual.** No workflow bumps `package.json`; carry
    the bump on `dev` ahead of the release
    (`npm version X.Y.Z --no-git-tag-version`). `publish.yml` refuses a tag
-   that disagrees with `package.json`.
+   that disagrees with `package.json`. The same commit dates the changelog
+   (see [Changelog](#changelog)).
 2. Merge `dev` → `main`.
 3. **Tag after the merge**, on `main`. Both workflows run the files as they
    exist at the tagged commit, so tagging first silently runs the previous
@@ -32,6 +33,21 @@ a workflow that creates the tag itself. Two independent workflows fire on
 5. Confirm the publish from the run log line `+ @ar-js-org/arjs-plugin-artoolkit@X.Y.Z`.
    `npm view` lags by minutes after a successful publish; do not read the lag
    as a failure.
+
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+PRs with a user-visible change add their entry under `## [Unreleased]` as they
+land (see AGENTS.md, "Pull requests"), so at release time the section only
+needs checking and dating:
+
+1. Check `## [Unreleased]` against the milestone's closed issues and merged
+   PRs. Every breaking change is marked **Breaking** and says what consumers
+   must change.
+2. In the version-bump commit, rename it to `## [X.Y.Z] - YYYY-MM-DD` and add
+   a new, empty `## [Unreleased]` above it.
+3. Update the compare links at the bottom: `[Unreleased]` becomes
+   `…/compare/vX.Y.Z...HEAD`, and add `[X.Y.Z]: …/compare/v<previous>...vX.Y.Z`.
 
 ## Recovering a partial release
 
