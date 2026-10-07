@@ -276,3 +276,9 @@ Commits predating this convention do not follow it; it applies going forward.
   at release time, never directly from a feature branch.
 - PR titles follow the same conventional-commit format as commit subjects.
 - Keep a PR to one logical change. If a branch grows a second concern, split it.
+- A PR with a user-visible change adds an entry under `## [Unreleased]` in
+  `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+  groups; mark breaking changes **Breaking** and say what consumers must
+  change). Internal-only changes (tests, CI, refactors) need none. At release,
+  `[Unreleased]` becomes the new version's section and its compare link is
+  added.
