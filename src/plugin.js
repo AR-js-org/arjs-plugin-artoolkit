@@ -417,7 +417,11 @@ export class ArtoolkitPlugin {
    */
   _detectorOptions() {
     const { detectionMode, matrixCodeType, detector } = this.options;
-    const opts = { ...detector, detectionMode, matrixCodeType };
+    // The top-level options win, but only when set: an unset one must not
+    // erase the same key given through `detector`.
+    const opts = { ...detector };
+    if (detectionMode !== undefined) opts.detectionMode = detectionMode;
+    if (matrixCodeType !== undefined) opts.matrixCodeType = matrixCodeType;
     for (const key of Object.keys(opts)) {
       if (opts[key] === undefined) delete opts[key];
     }
@@ -443,6 +447,10 @@ export class ArtoolkitPlugin {
    * `_onEngineUpdate` dropping every frame forever, even after a fresh
    * worker starts — a restarted worker must not be born blocked.
    *
+   * Rejects every request still waiting on a reply (`loadMarker`,
+   * `trackBarcode`, `configureDetector`), since the stopped worker can no
+   * longer send one.
+   *
    * @private
    */
   _stopWorker() {
@@ -460,6 +468,13 @@ export class ArtoolkitPlugin {
 
     worker.removeEventListener("message", this._onWorkerMessage);
     setTimeout(() => worker.terminate(), 0);
+
+    // No reply can arrive any more: fail the callers now rather than at
+    // their timeout. Their timers find the request gone and do nothing.
+    for (const { reject } of this._pendingMarkerLoads.values()) {
+      reject(new Error("Worker stopped before replying"));
+    }
+    this._pendingMarkerLoads.clear();
   }
 
   /**
@@ -744,8 +759,10 @@ export class ArtoolkitPlugin {
    * a warning is logged. Pattern and barcode IDs are independent, so barcode 0
    * and pattern 0 are different markers; events tell them apart by `type`.
    *
-   * Can be called before frames flow: the barcode is registered as soon as
-   * the detector initialises.
+   * Can be called before frames flow: the barcode is registered when the
+   * detector initialises on the first frame, and the promise settles then. If
+   * no frame arrives within the request timeout (10 s) the call rejects, but
+   * the barcode is still registered once a frame does.
    *
    * @param {number} barcodeId - ID encoded in the marker (for '3x3', 0-63)
    * @param {number} [size=1] - Marker width in world units
@@ -769,7 +786,11 @@ export class ArtoolkitPlugin {
   /**
    * Change detector settings at runtime.
    *
-   * Only the keys present are changed. Accepts artoolkit5-ts `DetectorOptions`:
+   * Only the keys present are changed, and `minConfidence` only for the
+   * families present. Keys are applied one at a time: when one is refused the
+   * call rejects, but the others still take effect. Called before the first
+   * frame, the promise settles once the detector initialises and applies it.
+   * Accepts artoolkit5-ts `DetectorOptions`:
    * `detectionMode`, `matrixCodeType`, `threshold`, `thresholdMode`,
    * `labelingMode`, `imageProcMode`, `patternRatio`, `nearPlane`, `farPlane`
    * and `minConfidence` (a number, or `{ pattern, barcode }`).

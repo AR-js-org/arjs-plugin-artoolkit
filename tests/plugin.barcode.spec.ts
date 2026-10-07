@@ -86,6 +86,26 @@ describe("barcode tracking and detector configuration", () => {
     );
   });
 
+  it("stopping the worker rejects requests still waiting on it at once", async () => {
+    // @ts-ignore extend the stub so _stopWorker can tear it down
+    Object.assign(plugin._worker, {
+      removeEventListener: vi.fn(),
+      terminate: vi.fn(),
+    });
+    const barcode = plugin.trackBarcode(1);
+    const config = plugin.configureDetector({ threshold: 90 });
+    const marker = plugin.loadMarker("/patt.hiro", 1);
+
+    // @ts-ignore private
+    plugin._stopWorker();
+
+    await expect(barcode).rejects.toThrow("Worker stopped");
+    await expect(config).rejects.toThrow("Worker stopped");
+    await expect(marker).rejects.toThrow("Worker stopped");
+    // @ts-ignore private
+    expect(plugin._pendingMarkerLoads.size).toBe(0);
+  });
+
   it("loadMarker still resolves with { markerId, size } through the shared request path", async () => {
     const pending = plugin.loadMarker("/patt.hiro", 1);
     reply("loadMarkerResult", { ok: true, markerId: 0, size: 1 });
@@ -125,6 +145,29 @@ describe("init payload", () => {
     });
     // @ts-ignore private
     expect(new ArtoolkitPlugin()._detectorOptions()).toEqual({});
+  });
+
+  it("keeps detectionMode and matrixCodeType given through `detector`", () => {
+    const plugin = new ArtoolkitPlugin({
+      detector: { detectionMode: "mono_and_matrix", matrixCodeType: "4x4" },
+    });
+    // @ts-ignore private
+    expect(plugin._detectorOptions()).toEqual({
+      detectionMode: "mono_and_matrix",
+      matrixCodeType: "4x4",
+    });
+  });
+
+  it("lets the top-level options win over the same keys in `detector`", () => {
+    const plugin = new ArtoolkitPlugin({
+      detectionMode: "matrix",
+      detector: { detectionMode: "mono", matrixCodeType: "4x4" },
+    });
+    // @ts-ignore private
+    expect(plugin._detectorOptions()).toEqual({
+      detectionMode: "matrix",
+      matrixCodeType: "4x4",
+    });
   });
 });
 

@@ -1,4 +1,14 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  beforeEach,
+  afterEach,
+} from "vitest";
+import { ArtoolkitPlugin } from "../src/plugin.js";
+import { createEventBus } from "./setupTests";
 
 /**
  * The worker's message protocol, driven through the real `src/worker/worker.js`
@@ -15,11 +25,20 @@ const detector = vi.hoisted(() => ({
   detect: vi.fn(),
   dispose: vi.fn(),
 }));
-const createDetector = vi.hoisted(() => vi.fn(() => detector));
+/** The options the worker built its detector with, kept across tests. */
+const created = vi.hoisted(() => ({ opts: null as any }));
+const createDetector = vi.hoisted(() =>
+  vi.fn((opts: unknown) => {
+    created.opts = opts;
+    return detector;
+  }),
+);
 
 vi.mock("../src/detector/artoolkit-detector.js", () => ({ createDetector }));
 
 const posted: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+/** Where the worker's replies go besides `posted`; set by the round trip. */
+let deliver: ((msg: never) => void) | null = null;
 let onMessage: (ev: { data: unknown }) => Promise<void>;
 
 class FakeOffscreenCanvas {
@@ -40,6 +59,7 @@ beforeAll(async () => {
   vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas);
   vi.spyOn(self, "postMessage").mockImplementation(((msg: never) => {
     posted.push(msg);
+    deliver?.(msg);
   }) as never);
   const add = vi.spyOn(self, "addEventListener");
   await import("../src/worker/worker.js");
@@ -99,7 +119,7 @@ describe("worker message protocol", () => {
   });
 
   it("trackBarcode replies with the detector's result", async () => {
-    detector.trackBarcode.mockReturnValue({
+    detector.trackBarcode.mockResolvedValue({
       markerId: 5,
       size: 1,
       detectionMode: "color_and_matrix",
@@ -118,7 +138,7 @@ describe("worker message protocol", () => {
   });
 
   it("configure replies with the config, or the error", async () => {
-    detector.configure.mockReturnValueOnce({ threshold: 90 });
+    detector.configure.mockResolvedValueOnce({ threshold: 90 });
     expect(
       await send("configure", { opts: { threshold: 90 }, requestId: 3 }),
     ).toEqual({
@@ -126,9 +146,7 @@ describe("worker message protocol", () => {
       payload: { ok: true, config: { threshold: 90 }, requestId: 3 },
     });
 
-    detector.configure.mockImplementationOnce(() => {
-      throw new Error("bad");
-    });
+    detector.configure.mockRejectedValueOnce(new Error("bad"));
     expect(await send("configure", { opts: {}, requestId: 4 })).toEqual({
       type: "configureResult",
       payload: { ok: false, error: "bad", requestId: 4 },
@@ -169,5 +187,123 @@ describe("worker message protocol", () => {
       }),
     ).toEqual({ type: "error", payload: { message: "bad option" } });
     expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The plugin and the real worker wired back to back: the plugin's requests
+ * reach the worker's listener, and what the worker posts reaches the plugin's
+ * handler. The protocol tests above pin the shapes; these pin that the plugin
+ * consumes them, so a change on either side cannot pass alone.
+ */
+describe("plugin ↔ worker round trip", () => {
+  let core: { eventBus: ReturnType<typeof createEventBus> };
+  let plugin: ArtoolkitPlugin;
+
+  beforeEach(async () => {
+    core = { eventBus: createEventBus() };
+    plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    // @ts-ignore stand in for the Worker object
+    plugin._worker = {
+      postMessage: (msg: unknown) => void onMessage({ data: msg }),
+    };
+    // @ts-ignore private handler
+    deliver = (msg) => plugin._onWorkerMessage({ data: msg });
+    await onMessage({ data: { type: "init", payload: {} } });
+  });
+
+  afterEach(() => {
+    deliver = null;
+  });
+
+  it("loadMarker resolves with the worker's reply", async () => {
+    detector.loadPattern.mockResolvedValue(3);
+    await expect(plugin.loadMarker("/p.patt", 2)).resolves.toEqual({
+      markerId: 3,
+      size: 2,
+    });
+  });
+
+  it("trackBarcode resolves with the detector's result", async () => {
+    detector.trackBarcode.mockResolvedValue({
+      markerId: 5,
+      size: 1,
+      detectionMode: "color_and_matrix",
+    });
+    await expect(plugin.trackBarcode(5)).resolves.toEqual({
+      markerId: 5,
+      size: 1,
+      detectionMode: "color_and_matrix",
+    });
+  });
+
+  it("configureDetector rejects with the option the detector refused", async () => {
+    detector.configure.mockRejectedValue(new Error("bad threshold"));
+    await expect(plugin.configureDetector({ threshold: -1 })).rejects.toThrow(
+      "bad threshold",
+    );
+  });
+
+  it("a detection becomes ar:markerFound and releases the frame in flight", async () => {
+    const found = vi.fn();
+    core.eventBus.on("ar:markerFound", found);
+    const vertex = [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ];
+    detector.detect.mockReturnValue({
+      detected: [
+        {
+          id: 0,
+          type: "barcode",
+          confidence: 0.9,
+          matrixGL: new Float32Array(16),
+          vertex,
+          dir: 2,
+        },
+      ],
+      lost: [],
+    });
+    // @ts-ignore private
+    plugin._frameInFlight = true;
+
+    await onMessage({
+      data: {
+        type: "processFrame",
+        payload: {
+          frameId: 1,
+          imageBitmap: { close() {} },
+          width: 2,
+          height: 2,
+        },
+      },
+    });
+
+    expect(found).toHaveBeenCalledWith(
+      expect.objectContaining({
+        markerId: 0,
+        type: "barcode",
+        confidence: 0.9,
+        vertex,
+        dir: 2,
+      }),
+    );
+    // @ts-ignore private
+    expect(plugin._frameInFlight).toBe(false);
+  });
+
+  it("an initialisation failure becomes ar:workerError", () => {
+    const err = vi.fn();
+    core.eventBus.on("ar:workerError", err);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    created.opts.onInitError(new Error("404 wasm"));
+
+    expect(err).toHaveBeenCalledWith({
+      message: expect.stringContaining("404 wasm"),
+    });
   });
 });

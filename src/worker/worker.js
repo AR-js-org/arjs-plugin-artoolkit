@@ -151,11 +151,17 @@ self.addEventListener("message", async (ev) => {
         return;
       }
 
+      // Before the first frame these settle only once the detector applies
+      // them, so the reply says whether the request was accepted. The
+      // listener is async, so frames keep flowing meanwhile.
       try {
         const result =
           type === "configure"
-            ? { config: detector.configure(payload?.opts) }
-            : detector.trackBarcode(payload?.barcodeId, payload?.size ?? 1);
+            ? { config: await detector.configure(payload?.opts) }
+            : await detector.trackBarcode(
+                payload?.barcodeId,
+                payload?.size ?? 1,
+              );
         sendMessage({
           type: resultType,
           payload: { ok: true, ...result, requestId },

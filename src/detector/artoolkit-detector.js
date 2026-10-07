@@ -72,6 +72,52 @@ export function matrixCapableMode(mode) {
 }
 
 /**
+ * Split detector options into the single-key steps they are applied in.
+ *
+ * artoolkit5-ts's `configureDetector` applies a call's keys one after another
+ * and stops at the first invalid one, leaving the earlier ones applied. One
+ * key per call means a rejected value fails alone, and the recorded
+ * configuration matches what the engine actually took. `minConfidence` is
+ * split per family for the same reason.
+ *
+ * @param {Object} opts - Options with `minConfidence` already normalised
+ * @returns {Array<Object>} One single-key options object per step
+ * @private
+ */
+function optionSteps(opts) {
+  const steps = [];
+  for (const [key, value] of Object.entries(opts)) {
+    if (value === undefined) continue;
+    if (key === "minConfidence" && value && typeof value === "object") {
+      for (const [family, floor] of Object.entries(value)) {
+        if (floor !== undefined) {
+          steps.push({ minConfidence: { [family]: floor } });
+        }
+      }
+    } else {
+      steps.push({ [key]: value });
+    }
+  }
+  return steps;
+}
+
+/**
+ * Record an applied step in a configuration, as artoolkit5-ts applies it:
+ * `minConfidence` changes only the families present.
+ *
+ * @param {Object} config - Configuration to update in place
+ * @param {Object} step - One step from {@link optionSteps}
+ * @private
+ */
+function mergeStep(config, step) {
+  if ("minConfidence" in step) {
+    config.minConfidence = { ...config.minConfidence, ...step.minConfidence };
+  } else {
+    Object.assign(config, step);
+  }
+}
+
+/**
  * Create a detector.
  *
  * Construction is cheap and synchronous: no WASM is loaded until
@@ -105,19 +151,31 @@ export function createDetector(options = {}) {
     onInitError,
   } = options;
 
-  /**
-   * Accumulated detector configuration. Kept after it is applied, so a state
-   * recreated after a failure is configured the same way.
-   *
-   * @type {Object}
-   */
-  const config = {
+  /** Options given at construction, applied first when the state is created. */
+  const initialOptions = {
     ...detectorOptions,
     minConfidence: normalizeMinConfidence(minConfidence),
   };
 
-  /** @type {Map<number, number>} barcodeId -> marker width */
-  const barcodes = new Map();
+  /**
+   * The configuration in effect. Before the state exists, the configuration
+   * requested so far, which is what {@link trackBarcode} decides the detection
+   * mode from; it is rebuilt from what the engine accepts once the state is
+   * created.
+   *
+   * @type {Object}
+   */
+  let config = {};
+  for (const step of optionSteps(initialOptions)) mergeStep(config, step);
+
+  /**
+   * `configure` and `trackBarcode` requests made before the state exists, run
+   * in order once it does. Each settles only then, so a caller learns whether
+   * its request was actually accepted rather than that it was queued.
+   *
+   * @type {Array<{run: () => Object, resolve: Function, reject: Function}>}
+   */
+  let queue = [];
 
   /** @type {Object|null} */
   let state = null;
@@ -212,13 +270,34 @@ export function createDetector(options = {}) {
         state = created;
         failCount = 0;
         failedUntil = 0;
+
+        // Everything is set up before readiness is published, so nothing
+        // waiting on it sees a half-configured engine. Construction options
+        // come first, then queued requests in the order they were made:
+        // barcodes are only detected once the engine is in a matrix-capable
+        // mode. A refused construction option is left out and does not stop
+        // the rest; a refused request fails on its own.
+        config = {};
+        let initialError = null;
+        try {
+          applyOptions(initialOptions);
+        } catch (err) {
+          initialError = err;
+        }
+        const pending = queue;
+        queue = [];
+        for (const { run, resolve, reject } of pending) {
+          try {
+            resolve(run());
+          } catch (err) {
+            reject(err);
+          }
+        }
+
         if (!readySettled) resolveReady(state);
-        // Configuration first: barcodes are only detected once the engine is
-        // in a matrix-capable mode. An invalid option throws here, after the
-        // state is committed, so it is reported once instead of being retried
-        // as if initialisation had failed.
-        configureDetector(state, config);
-        for (const [id, size] of barcodes) trackBarcodeMarker(state, id, size);
+        // Thrown after the state is committed, so it is reported once instead
+        // of being retried as if initialisation had failed.
+        if (initialError) throw initialError;
         return true;
       } catch (err) {
         if (state) throw err;
@@ -230,11 +309,11 @@ export function createDetector(options = {}) {
         // Once retries have been exhausted, fail the waiters rather than
         // leaving them on a promise that will never resolve.
         if (failCount >= MAX_FAIL_COUNT && !readySettled) {
-          rejectReady(
-            new Error(
-              `ARToolKit initialisation failed ${failCount} times: ${err?.message || err}`,
-            ),
+          const failure = new Error(
+            `ARToolKit initialisation failed ${failCount} times: ${err?.message || err}`,
           );
+          rejectReady(failure);
+          rejectQueue(failure);
           // Anyone already waiting gets that rejection. Re-arm so a later
           // successful attempt can serve new callers instead of handing them a
           // permanently rejected promise.
@@ -293,25 +372,102 @@ export function createDetector(options = {}) {
   }
 
   /**
+   * Apply options to the state one key at a time, recording each one the
+   * engine accepts in `config`.
+   *
+   * @param {Object} opts - Options with `minConfidence` already normalised
+   * @throws {Error} The first rejection, after every other key has been applied
+   * @private
+   */
+  function applyOptions(opts) {
+    let firstError = null;
+    for (const step of optionSteps(opts)) {
+      try {
+        configureDetector(state, step);
+        mergeStep(config, step);
+      } catch (err) {
+        firstError ??= err;
+      }
+    }
+    if (firstError) throw firstError;
+  }
+
+  /**
+   * Run `run` against the state now if it exists, otherwise once it is
+   * created.
+   *
+   * @param {() => Object} run - Work that needs the state; may throw
+   * @returns {Promise<Object>} Settles with `run`'s result or error
+   * @private
+   */
+  function request(run) {
+    if (disposed) return Promise.reject(new Error("Detector disposed"));
+    if (state) {
+      try {
+        return Promise.resolve(run());
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+    return new Promise((resolve, reject) => {
+      queue.push({ run, resolve, reject });
+    });
+  }
+
+  /**
+   * Fail every queued request.
+   *
+   * @param {Error} err
+   * @private
+   */
+  function rejectQueue(err) {
+    const pending = queue;
+    queue = [];
+    for (const { reject } of pending) reject(err);
+  }
+
+  /**
+   * A copy of `config` the caller cannot use to change it.
+   *
+   * @returns {Object}
+   * @private
+   */
+  function snapshot() {
+    const copy = { ...config };
+    if (copy.minConfidence) copy.minConfidence = { ...copy.minConfidence };
+    return copy;
+  }
+
+  /**
    * Change detector settings.
    *
-   * Only the keys present are changed. Applied at once when the state exists,
-   * otherwise when it is created.
+   * Only the keys present are changed, and `minConfidence` only for the
+   * families present. Applied at once when the state exists, otherwise when it
+   * is created; the returned promise settles only then, so an option
+   * artoolkit5-ts refuses rejects this call rather than surfacing later.
+   *
+   * Keys are applied one at a time: when one is refused, the others in the
+   * same call still take effect, and the refused one stays out of the
+   * configuration.
    *
    * @param {Object} [opts] - artoolkit5-ts `DetectorOptions`; `minConfidence`
    *   may also be a single number
-   * @returns {Object} The full configuration now in effect
-   * @throws {Error} If disposed, or if artoolkit5-ts rejects an option
+   * @returns {Promise<Object>} The full configuration now in effect
    */
   function configure(opts = {}) {
-    if (disposed) throw new Error("Detector disposed");
     const partial = { ...opts };
     if ("minConfidence" in partial) {
       partial.minConfidence = normalizeMinConfidence(partial.minConfidence);
     }
-    if (state) configureDetector(state, partial);
-    Object.assign(config, partial);
-    return { ...config };
+    // Before the state exists, record the request so a trackBarcode() queued
+    // after it decides the detection mode from it.
+    if (!state && !disposed) {
+      for (const step of optionSteps(partial)) mergeStep(config, step);
+    }
+    return request(() => {
+      applyOptions(partial);
+      return snapshot();
+    });
   }
 
   /**
@@ -322,17 +478,19 @@ export function createDetector(options = {}) {
    * can, with a warning — tracking a barcode the engine never reports is never
    * what the caller wants.
    *
-   * Registered at once when the state exists, otherwise when it is created.
+   * Registered at once when the state exists, otherwise when it is created;
+   * the returned promise settles only then.
    *
    * @param {number} barcodeId - ID encoded in the marker
    * @param {number} [size=1] - Marker width in world units
-   * @returns {{markerId: number, size: number, detectionMode: string}}
-   * @throws {Error} If disposed or `barcodeId` is not a non-negative integer
+   * @returns {Promise<{markerId: number, size: number, detectionMode: string}>}
+   *   Rejects at once if disposed or `barcodeId` is not a non-negative
+   *   integer, and later if artoolkit5-ts refuses the registration
    */
   function trackBarcode(barcodeId, size = 1) {
-    if (disposed) throw new Error("Detector disposed");
+    if (disposed) return Promise.reject(new Error("Detector disposed"));
     if (!Number.isInteger(barcodeId) || barcodeId < 0) {
-      throw new Error(`Invalid barcodeId: ${barcodeId}`);
+      return Promise.reject(new Error(`Invalid barcodeId: ${barcodeId}`));
     }
 
     const mode = matrixCapableMode(config.detectionMode);
@@ -340,12 +498,15 @@ export function createDetector(options = {}) {
       console.warn(
         `[ArtoolkitDetector] detectionMode '${config.detectionMode ?? "color"}' cannot detect barcodes; switching to '${mode}'.`,
       );
-      configure({ detectionMode: mode });
+      // Every mode matrixCapableMode returns is valid, and a failure here
+      // would only mean the state is gone, which the request below reports.
+      configure({ detectionMode: mode }).catch(() => {});
     }
 
-    barcodes.set(barcodeId, size);
-    if (state) trackBarcodeMarker(state, barcodeId, size);
-    return { markerId: barcodeId, size, detectionMode: mode };
+    return request(() => {
+      trackBarcodeMarker(state, barcodeId, size);
+      return { markerId: barcodeId, size, detectionMode: mode };
+    });
   }
 
   /**
@@ -395,7 +556,8 @@ export function createDetector(options = {}) {
    *
    * Idempotent. After disposal {@link detect} returns empty results rather than
    * throwing, so an in-flight frame cannot crash the worker. Also fails any
-   * {@link loadPattern} call still waiting on readiness, so a caller blocked on
+   * {@link loadPattern}, {@link configure} or {@link trackBarcode} call still
+   * waiting on readiness, so a caller blocked on
    * a detector that will never initialise is not left hanging forever. A state
    * that finishes initialising after this call is freed rather than kept, so
    * it cannot leak.
@@ -405,11 +567,9 @@ export function createDetector(options = {}) {
   function dispose() {
     if (disposed) return;
     disposed = true;
-    if (!readySettled) {
-      rejectReady(
-        new Error("Detector disposed before initialisation completed"),
-      );
-    }
+    const err = new Error("Detector disposed before initialisation completed");
+    if (!readySettled) rejectReady(err);
+    rejectQueue(err);
     if (state) {
       disposeARToolKitState(state);
       state = null;
@@ -420,8 +580,8 @@ export function createDetector(options = {}) {
    * @typedef {Object} Detector
    * @property {(width: number, height: number) => Promise<boolean>} ensureReady
    * @property {(patternUrl: string, size?: number) => Promise<number>} loadPattern
-   * @property {(opts?: Object) => Object} configure
-   * @property {(barcodeId: number, size?: number) => {markerId: number, size: number, detectionMode: string}} trackBarcode
+   * @property {(opts?: Object) => Promise<Object>} configure
+   * @property {(barcodeId: number, size?: number) => Promise<{markerId: number, size: number, detectionMode: string}>} trackBarcode
    * @property {(pixels: Uint8ClampedArray) => {detected: Array<Object>, lost: Array<Object>}} detect
    * @property {() => void} dispose
    */

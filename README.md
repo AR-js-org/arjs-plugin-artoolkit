@@ -492,9 +492,12 @@ engine.eventBus.on("ar:markerFound", ({ markerId, type }) => {
 - **Pattern and barcode IDs are independent.** Barcode 0 and the first loaded
   pattern (also ID 0) are different markers. Key your own state on
   `type:markerId`.
-- **Order.** Like `loadMarker`, `trackBarcode` needs the worker running. The
-  barcode is registered as soon as the detector initialises on the first
-  frame, so it may be called before frames flow.
+- **Order.** Like `loadMarker`, `trackBarcode` needs the worker running. It
+  may be called before frames flow: the barcode is registered when the
+  detector initialises on the first frame, and the promise settles then, so
+  it tells you whether the registration was accepted. Like every request it
+  times out after 10 s; if no frame arrives by then the call rejects, though
+  the barcode is still registered once one does.
 
 <a id="configuring-the-detector-"></a>
 
@@ -502,7 +505,9 @@ engine.eventBus.on("ar:markerFound", ({ markerId, type }) => {
 
 artoolkit5-ts detector options can be set at construction (`detectionMode`,
 `matrixCodeType`, `minConfidence`, and anything else under `detector`) and
-changed at runtime. Only the keys you pass change.
+changed at runtime. Only the keys you pass change, and `minConfidence` only
+for the families you pass: `{ barcode: 0.8 }` leaves the pattern floor as it
+was.
 
 ```js
 const plugin = new ArtoolkitPlugin({
@@ -527,8 +532,12 @@ await plugin.configureDetector({ threshold: 120, thresholdMode: "manual" });
 | `nearPlane`, `farPlane` | projection clipping planes                                                                                                                     |
 | `minConfidence`         | number for both families, or `{ pattern, barcode }`                                                                                            |
 
-An invalid value rejects `configureDetector`. Set at construction, it is
-reported through `ar:workerError` once the detector initialises.
+An invalid value rejects `configureDetector`; the other options in the same
+call still take effect. Called before the first frame, `configureDetector`
+settles once the detector initialises, so the rejection still reaches the
+caller. An invalid value set at construction is left out and reported through
+`ar:workerError` once the detector initialises; everything else, queued
+barcodes included, is applied as usual.
 
 <a id="examples-"></a>
 

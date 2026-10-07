@@ -74,10 +74,20 @@ Requests carrying a `requestId` go through `plugin._request`, which resolves
 with the `*Result` payload minus `ok`/`requestId`, or rejects on `ok: false`
 or after 10 s.
 
-`trackBarcode` and `configure` do not wait for readiness: the detector queues
-them and applies them when the state is created — configuration first, then
-barcodes, because barcodes are only detected in a matrix-capable
-`detectionMode`. `trackBarcode` switches the mode to one if needed.
+`trackBarcode` and `configure` can be sent before readiness: the detector
+queues them and runs them, in order, when the state is created, after the
+construction options. The worker replies only once that has happened, so the
+`*Result` reports whether the request was actually accepted, and a request
+made before the first frame waits for it (subject to the 10 s timeout).
+Readiness is published only after all of it has run, so nothing waiting on it
+sees a half-configured engine. `trackBarcode` switches the mode to a
+matrix-capable one if needed, since barcodes are only detected in one.
+
+Options are applied one key at a time, because artoolkit5-ts's
+`configureDetector` stops at the first invalid key and leaves the earlier ones
+applied. A refused key fails alone and stays out of the recorded
+configuration; a refused construction option does not stop queued requests.
+`minConfidence` merges per family.
 
 `detected` entries are `{ id, type, confidence, matrixGL, vertex, dir }`; `lost` entries are
 `{ id, type }`. These use `id` rather than `markerId` because they mirror
