@@ -263,7 +263,12 @@ Commits predating this convention do not follow it; it applies going forward.
 
 ## Git
 
-- Branch flow: feature branch → `dev` → `main`. Never commit directly to `main`.
+- Branch flow: feature branch → `dev` → `main`. Never commit directly to `main`;
+  the hook in `.claude/settings.json` refuses `git commit`/`git push` there.
+- Releases (milestones, tagging order, trusted publishing) follow
+  `MAINTAINERS.md`.
+- `.claude/settings.json` also runs prettier and eslint `--fix` on every file
+  an agent edits (`.claude/hooks/format-on-edit.mjs`).
 - **Never pass `--author` or `-c user.name=…` to `git commit`.** Let the
   repository's own git config decide authorship. Overriding it has previously
   misattributed commits to the wrong GitHub account, and undoing that costs a
