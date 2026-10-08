@@ -26,7 +26,7 @@ npm run build         # vite library build
 npm run build:types   # tsc --emitDeclarationOnly
 npm run format        # prettier --write .
 npm run format:check  # prettier --check .
-npm run lint          # eslint (currently non-functional: no flat config yet; see follow-up issue)
+npm run lint          # eslint (flat config in eslint.config.js)
 npm run smoke:node    # dev/smoke-node.js lifecycle smoke test
 npm run smoke:browser # http-server on :8080 for examples/
 ```
@@ -49,16 +49,45 @@ message-passing concerns belong in the worker.
 
 ## Worker message protocol
 
-| Direction     | Message            | Payload                                           |
-| ------------- | ------------------ | ------------------------------------------------- |
-| main → worker | `init`             | `{ cameraParametersUrl, wasmUrl, minConfidence }` |
-| main → worker | `loadMarker`       | `{ patternUrl, size, requestId }`                 |
-| main → worker | `processFrame`     | `{ frameId, imageBitmap, width, height }`         |
-| main → worker | `dispose`          | none                                              |
-| worker → main | `ready`            | none                                              |
-| worker → main | `loadMarkerResult` | `{ ok, markerId, size, requestId, error }`        |
-| worker → main | `detectionResult`  | `{ frameId, detected, lost }`                     |
-| worker → main | `error`            | `{ message }`                                     |
+| Direction     | Message              | Payload                                                            |
+| ------------- | -------------------- | ------------------------------------------------------------------ |
+| main → worker | `init`               | `{ cameraParametersUrl, wasmUrl, minConfidence, detectorOptions }` |
+| main → worker | `loadMarker`         | `{ patternUrl, size, requestId }`                                  |
+| main → worker | `trackBarcode`       | `{ barcodeId, size, requestId }`                                   |
+| main → worker | `configure`          | `{ opts, requestId }`                                              |
+| main → worker | `processFrame`       | `{ frameId, imageBitmap, width, height }`                          |
+| main → worker | `dispose`            | none                                                               |
+| worker → main | `ready`              | none                                                               |
+| worker → main | `loadMarkerResult`   | `{ ok, markerId, size, requestId, error }`                         |
+| worker → main | `trackBarcodeResult` | `{ ok, markerId, size, detectionMode, requestId, error }`          |
+| worker → main | `configureResult`    | `{ ok, config, requestId, error }`                                 |
+| worker → main | `detectionResult`    | `{ frameId, detected, lost, skipped? }`                            |
+| worker → main | `initError`          | `{ message }`                                                      |
+| worker → main | `error`              | `{ message }`                                                      |
+
+`initError` and `error` both become `ar:workerError`, but only `error`
+acknowledges the frame in flight. `initError` is posted from inside
+`ensureReady` while the same frame goes on to its own `detectionResult`, so
+treating it as an acknowledgement would let two frames into flight.
+
+Requests carrying a `requestId` go through `plugin._request`, which resolves
+with the `*Result` payload minus `ok`/`requestId`, or rejects on `ok: false`
+or after 10 s.
+
+`trackBarcode` and `configure` can be sent before readiness: the detector
+queues them and runs them, in order, when the state is created, after the
+construction options. The worker replies only once that has happened, so the
+`*Result` reports whether the request was actually accepted, and a request
+made before the first frame waits for it (subject to the 10 s timeout).
+Readiness is published only after all of it has run, so nothing waiting on it
+sees a half-configured engine. `trackBarcode` switches the mode to a
+matrix-capable one if needed, since barcodes are only detected in one.
+
+Options are applied one key at a time, because artoolkit5-ts's
+`configureDetector` stops at the first invalid key and leaves the earlier ones
+applied. A refused key fails alone and stays out of the recorded
+configuration; a refused construction option does not stop queued requests.
+`minConfidence` merges per family.
 
 `detected` entries are `{ id, type, confidence, matrixGL, vertex, dir }`; `lost` entries are
 `{ id, type }`. These use `id` rather than `markerId` because they mirror
@@ -74,7 +103,10 @@ must be called only after at least one frame has reached the worker.
 `detectionResult` is sent exactly once per `processFrame` received, always —
 including when both `detected` and `lost` are empty, and for a frame the
 worker skips outright (no `ImageBitmap` on the payload, or the detector not
-yet constructed). This acknowledgement is load-bearing, not a courtesy:
+yet constructed). A skipped frame carries `skipped: true`: the plugin releases
+the in-flight slot but does not read its empty lists as every marker going
+missing, nor count it as a processed frame for the stall guard. This
+acknowledgement is load-bearing, not a courtesy:
 `src/plugin.js` allows only one frame in flight at a time and relies on it
 arriving to release the next one (see `_onEngineUpdate` and
 `_onWorkerMessage`). A `processFrame` that went unacknowledged would wedge
@@ -148,18 +180,26 @@ Anything keyed on the bare ID will make pattern 3 and barcode 3 collide.
 
 `ar:markerLost` is debounced, not immediate. The detector routinely fails to
 report a well-tracked marker on an isolated frame — angle, motion blur,
-lighting — so `_applyLost` requires `lostThreshold` **consecutive** frames of
-the library reporting a marker missing before it fires. Each registry entry
-carries a `consecutiveMisses` counter that `_applyLost` increments and
-`_applyDetections` resets to 0 on any sighting. While a marker is within that
-tolerance it stays in the registry and nothing is emitted; a re-detection
-during the window emits `ar:markerUpdated`, not `ar:markerFound`, since the
-marker never left as far as consumers are concerned. Only once the counter
-reaches `lostThreshold` is the entry removed and `ar:markerLost` emitted, so a
-later detection correctly starts over with `ar:markerFound`. This is separate
-from `_sweepMarkers`, which covers frames that stop arriving at all (see the
-"Lost markers" row of the Decisions table and its "Post-implementation note"
-in `docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md`).
+lighting — so `_applyMisses` requires `lostThreshold` **consecutive processed
+frames** without a marker before it fires. Each registry entry carries a
+`consecutiveMisses` counter that `_applyMisses` increments for every tracked
+marker absent from a frame's `detected`, and `_applyDetections` resets to 0 on
+any sighting. While a marker is within that tolerance it stays in the registry
+and nothing is emitted; a re-detection during the window emits
+`ar:markerUpdated`, not `ar:markerFound`. Only once the counter reaches
+`lostThreshold` is the entry removed and `ar:markerLost` emitted, so a later
+detection correctly starts over with `ar:markerFound`.
+
+The counter keys on **absence from `detected`, not on the `lost` list**.
+artoolkit5-ts reports a loss exactly once, on the frame the marker
+disappears; counting `lost` entries (as 0.2.0 did) never got past 1, so loss
+silently fell through to the sweep timer (#38). The worker still forwards
+`lost`, but the plugin does not need it.
+
+`_sweepMarkers` is a stall guard only: it reports every tracked marker lost
+when **no frame** has been acknowledged for `lostThreshold × frameDurationMs`
+(`_lastFrameAt`). It measures the pipeline, not the marker, so a slow but live
+pipeline never trips it.
 
 ## Conventions
 
@@ -182,17 +222,20 @@ load real WASM in a unit test.
 
 `src/worker/**` is excluded from coverage — it is a message pump with no logic
 worth asserting. Logic belongs in the detector or the plugin, where it can be
-tested.
+tested. Its **message shapes** are still pinned by `tests/worker.spec.ts`,
+which imports the real worker with the detector and `self` stubbed; when you
+add or change a message, update that spec and the protocol table above
+together.
 
 ## Dependencies
 
 `@ar-js-org/artoolkit5-ts` provides detection. It is data-oriented: plain
 `ARToolKitState`, pure functions, no classes, no DOM, no event emitter. The
 functions used here are `createARToolKitState`, `disposeARToolKitState`,
-`loadPatternMarker`, `trackMarker` and `processFrame`. `trackBarcodeMarker`
-exists in the library but is reserved for the barcode follow-up (see
-Non-goals in the migration spec) — it is not imported anywhere in this
-plugin.
+`loadPatternMarker`, `trackMarker`, `trackBarcodeMarker`, `configureDetector`
+and `processFrame`. Confidence filtering is done by `processFrame` from the
+per-family `minConfidence` given to `configureDetector`; the detector does not
+filter again.
 
 ## Commits
 
@@ -223,7 +266,12 @@ Commits predating this convention do not follow it; it applies going forward.
 
 ## Git
 
-- Branch flow: feature branch → `dev` → `main`. Never commit directly to `main`.
+- Branch flow: feature branch → `dev` → `main`. Never commit directly to `main`;
+  the hook in `.claude/settings.json` refuses `git commit`/`git push` there.
+- Releases (milestones, tagging order, trusted publishing) follow
+  `MAINTAINERS.md`.
+- `.claude/settings.json` also runs prettier and eslint `--fix` on every file
+  an agent edits (`.claude/hooks/format-on-edit.mjs`).
 - **Never pass `--author` or `-c user.name=…` to `git commit`.** Let the
   repository's own git config decide authorship. Overriding it has previously
   misattributed commits to the wrong GitHub account, and undoing that costs a
@@ -236,3 +284,9 @@ Commits predating this convention do not follow it; it applies going forward.
   at release time, never directly from a feature branch.
 - PR titles follow the same conventional-commit format as commit subjects.
 - Keep a PR to one logical change. If a branch grows a second concern, split it.
+- A PR with a user-visible change adds an entry under `## [Unreleased]` in
+  `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+  groups; mark breaking changes **Breaking** and say what consumers must
+  change). Internal-only changes (tests, CI, refactors) need none. At release,
+  `[Unreleased]` becomes the new version's section and its compare link is
+  added.

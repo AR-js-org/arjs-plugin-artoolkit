@@ -11,20 +11,17 @@ name: Build and Release
 # which side each piece came from and why, so the next person does not have to redo
 # this comparison.
 
+# Tag push only (#39). A manual `workflow_dispatch` used to take a `tag` input
+# that named the release while both jobs built the ref the run was dispatched
+# from, so its assets could belong to a different tree than the tag; and with a
+# mistyped tag, `gh release create` invented the tag at the default branch.
+# Re-attaching assets to an existing release needs no dispatch: re-running the
+# tag push's own run keeps the tag as its ref, and the upload step replaces the
+# assets with `--clobber`.
 on:
   push:
     tags:
       - "v*.*.*"
-  # From `dev`. `main` has a bare `workflow_dispatch:`, which looks harmless and is
-  # not: its tag step reads `${GITHUB_REF##*/}` unconditionally, so a manual run
-  # from a branch resolves the tag to the branch name and creates a GitHub Release
-  # called `main`. The input plus the validation below makes a manual run either
-  # correct or refused.
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag name for the release (required for manual dispatch)"
-        required: false
 
 jobs:
   # Two jobs, from `main` (25727c8, cb0f49c). The split is what lets the release
@@ -105,23 +102,16 @@ jobs:
         with:
           name: build-artifacts
 
-      # `main`'s version of this step reads `${GITHUB_REF##*/}` with no check, so a
-      # manual dispatch produces a release named after the branch. `dev`'s
-      # validation is kept instead.
+      # The pushed tag. The trigger guarantees one; the check only makes a future
+      # trigger change fail loudly instead of naming a release after a branch.
       - name: Determine release tag
         id: tag
         run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            if [[ "$GITHUB_REF" != refs/tags/* ]]; then
-              echo "Error: a manual dispatch needs a tag input, or the workflow must be triggered by a tag push" >&2
-              echo "GITHUB_REF=$GITHUB_REF is not a tag reference" >&2
-              exit 1
-            fi
-            ref_name=${GITHUB_REF##*/}
-            echo "tag=$ref_name" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "Error: GITHUB_REF=$GITHUB_REF is not a tag; this workflow runs on tag pushes only" >&2
+            exit 1
           fi
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
 
       # Zipped, from `main` (e718530). `dev` uploaded `dist/*` as loose files, which
       # flattens the tree: `dist/assets/worker-<hash>.js` arrives as a bare file
@@ -136,11 +126,13 @@ jobs:
             zip -r dist.zip dist
           fi
 
+      # The tag reaches the script through `env:`, not `${{ }}`: an expression is
+      # substituted into the script text before the shell parses it.
       - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          TAG=${{ steps.tag.outputs.tag }}
           ASSETS=""
           if [ -f dist.zip ]; then
             ASSETS="$ASSETS dist.zip"
@@ -162,4 +154,5 @@ jobs:
       - name: Show uploaded release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "${{ steps.tag.outputs.tag }}" --json assets --jq '.assets[].name'
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: gh release view "$TAG" --json assets --jq '.assets[].name'

@@ -78,29 +78,31 @@ describe("marker families are tracked independently", () => {
     const lost = vi.fn();
     core.eventBus.on("ar:markerLost", lost);
 
-    // Miss pattern:3 alone (1/3); barcode:3's own counter must stay at 0.
-    // @ts-ignore
-    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "pattern" }]));
-    expect(plugin.getMarkerState(3, "barcode").consecutiveMisses).toBe(0);
+    const barcode3 = {
+      id: 3,
+      type: "barcode",
+      confidence: 0.8,
+      matrixGL: new Float32Array(16),
+    };
 
-    // Miss both together (pattern 2/3, barcode 1/3) - different counts on
-    // the same numeric id.
+    // Pattern:3 absent, barcode:3 still seen: pattern 1/3, barcode stays 0.
     // @ts-ignore
     plugin._onWorkerMessage(
-      detectionResult(
-        [],
-        [
-          { id: 3, type: "pattern" },
-          { id: 3, type: "barcode" },
-        ],
-      ),
+      detectionResult([barcode3], [{ id: 3, type: "pattern" }]),
     );
+    expect(plugin.getMarkerState(3, "pattern").consecutiveMisses).toBe(1);
+    expect(plugin.getMarkerState(3, "barcode").consecutiveMisses).toBe(0);
+
+    // Both absent (pattern 2/3, barcode 1/3) - different counts on the same
+    // numeric id. The library reports barcode:3 lost here, once.
+    // @ts-ignore
+    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "barcode" }]));
     expect(lost).not.toHaveBeenCalled();
 
-    // Miss pattern:3 alone again: its 3rd consecutive miss crosses
-    // lostThreshold while barcode:3 (at 1) is untouched and stays tracked.
+    // Both absent again, with no lost report at all: pattern:3's 3rd
+    // consecutive miss crosses lostThreshold, barcode:3 (2/3) stays tracked.
     // @ts-ignore
-    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "pattern" }]));
+    plugin._onWorkerMessage(detectionResult([]));
 
     expect(lost).toHaveBeenCalledTimes(1);
     expect(lost.mock.calls[0][0]).toMatchObject({
@@ -110,13 +112,11 @@ describe("marker families are tracked independently", () => {
     expect(plugin.getMarkerState(3, "pattern")).toBeNull();
     const barcodeState = plugin.getMarkerState(3, "barcode");
     expect(barcodeState).not.toBeNull();
-    expect(barcodeState.consecutiveMisses).toBe(1);
+    expect(barcodeState.consecutiveMisses).toBe(2);
 
-    // Barcode:3 crosses its own threshold independently, two misses later.
+    // Barcode:3 crosses its own threshold on the next empty frame.
     // @ts-ignore
-    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "barcode" }]));
-    // @ts-ignore
-    plugin._onWorkerMessage(detectionResult([], [{ id: 3, type: "barcode" }]));
+    plugin._onWorkerMessage(detectionResult([]));
 
     expect(lost).toHaveBeenCalledTimes(2);
     expect(lost.mock.calls[1][0]).toMatchObject({

@@ -16,6 +16,8 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 
 - [Features](#features-)
 - [Version](#version-)
+- [Changelog](CHANGELOG.md)
+- [Upgrading to 0.3.0](#upgrading-to-030-)
 - [Upgrading to 0.2.0](#upgrading-to-020-)
 - [Installation](#installation-)
 - [Using the ESM build (recommended)](#using-the-esm-build-recommended-)
@@ -26,6 +28,8 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
   - [Events](#events-)
   - [Sending frames](#sending-frames-)
   - [Loading a pattern marker](#loading-a-pattern-marker-)
+  - [Tracking a barcode marker](#tracking-a-barcode-marker-)
+  - [Configuring the detector](#configuring-the-detector-)
 - [Examples](#examples-)
 - [API Reference](#api-reference-)
 - [Troubleshooting](#troubleshooting-)
@@ -36,9 +40,10 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 
 - 🧠 Web Worker-based detection — marker detection runs off the main thread (Browser Module Worker)
 - 🖼️ ImageBitmap support — zero-copy frame transfer for efficient camera frames
-- 🧩 ARToolKit integration — square pattern markers (patt files), powered by [artoolkit5-ts](https://github.com/AR-js-org/artoolkit5-ts)
+- 🧩 ARToolKit integration — square pattern markers (patt files) and barcode (matrix code) markers, powered by [artoolkit5-ts](https://github.com/AR-js-org/artoolkit5-ts)
 - ⚡ Event-driven API — `ar:markerFound` / `ar:markerUpdated` / `ar:markerLost` carrying `{ markerId, type, matrix, confidence, timestamp }`
-- 🔍 Confidence filtering — detections below `minConfidence` (default 0.6) are dropped before they reach any event listener
+- 🔍 Confidence filtering — detections below `minConfidence` (default 0.6, settable per marker family) are dropped before they reach any event listener
+- 🎛️ Detector tuning — detection mode, barcode dictionary, thresholding and more, at construction or at runtime
 
 <a id="version-"></a>
 
@@ -58,6 +63,37 @@ console.log("Instance version:", plugin.version);
 ```
 
 If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
+
+What changed in each release, including every breaking change, is in
+[CHANGELOG.md](CHANGELOG.md).
+
+<a id="upgrading-to-030-"></a>
+
+## Upgrading to 0.3.0 🔄
+
+No breaking API changes. New:
+
+- **Barcode markers:** `plugin.trackBarcode(barcodeId, size)`. See
+  [Tracking a barcode marker](#tracking-a-barcode-marker-).
+- **Detector options:** `detectionMode`, `matrixCodeType` and `detector` in
+  the constructor, and `plugin.configureDetector(opts)` at runtime. See
+  [Configuring the detector](#configuring-the-detector-).
+- **`minConfidence` accepts `{ pattern, barcode }`.** A number still applies
+  to both families. Filtering now happens inside artoolkit5-ts.
+
+Behaviour changes worth knowing:
+
+- **`ar:markerLost` now honours `lostThreshold` as a frame count.** In 0.2.0
+  loss was in practice a 1-second timer (`lostThreshold × frameDurationMs`),
+  because artoolkit5-ts reports a loss only once and the miss counter never
+  advanced. Now every processed frame without the marker counts as a miss, so
+  a marker is lost after `lostThreshold` consecutive frames without it,
+  whatever the frame rate. `frameDurationMs` only sizes the stall guard, which
+  reports all markers lost when frames stop being processed at all.
+- **A failed WASM or camera-parameter load fires `ar:workerError` at once**,
+  with the underlying message, instead of surfacing only as a
+  `loadMarker request timed out` ten seconds later. Initialisation still
+  retries in the background.
 
 <a id="upgrading-to-020-"></a>
 
@@ -119,7 +155,8 @@ was deleted rather than left as a silent no-op.
 `artoolkit5.wasm` into `dist/`. Without `wasmUrl`, artoolkit5-ts falls back to
 the bare filename, which Emscripten then resolves relative to the worker
 chunk — where it 404s. That failure is caught and retried with backoff inside
-the detector rather than thrown, so **no `ar:workerError` fires.** The
+the detector rather than thrown, so **no `ar:workerError` fires** (fixed in
+0.3.0, which reports the first failure through `ar:workerError`). The
 detector only gives up (and rejects its own readiness) after six consecutive
 failures, which takes far longer than ten seconds at its backoff schedule, so
 in practice `plugin.loadMarker()` always hits its own 10-second client-side
@@ -139,12 +176,8 @@ hardcoded at 0.6 inside the worker and reachable only through a raw `init`
 message. The default is unchanged, so detection behaviour is the same unless
 you opt to change it.
 
-### Not yet supported
-
-Barcode (matrix code) markers and `configureDetector` options are supported by
-artoolkit5-ts 0.2.0 but not yet exposed here. `trackBarcode(barcodeId, size)` is
-the reserved entry point for barcode markers, which need no file load. Both are
-tracked as follow-up issues.
+Barcode markers and detector options, listed here as not yet supported in
+0.2.0, arrived in 0.3.0.
 
 <a id="installation-"></a>
 
@@ -303,7 +336,7 @@ import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
 const plugin = new ArtoolkitPlugin({
   worker: true,
   lostThreshold: 5, // consecutive missed frames before a marker is considered lost
-  frameDurationMs: 100, // expected ms per frame (affects lost timing)
+  frameDurationMs: 100, // expected ms per frame (sizes the stall guard)
   wasmUrl: "/node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm",
   cameraParametersUrl: "/data/camera_para.dat",
   minConfidence: 0.6,
@@ -329,8 +362,7 @@ The plugin emits the following events on your engine’s event bus:
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed — ready for
 WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
-`"pattern"` or `"barcode"` (only pattern markers are reachable today; see
-[Upgrading to 0.2.0](#upgrading-to-020-)). A marker's real identity is the pair
+`"pattern"` or `"barcode"`. A marker's real identity is the pair
 `type:markerId`, not `markerId` alone — pattern and barcode markers keep
 independent ID registries, so a barcode marker and a pattern marker can both
 report `markerId: 0` while being two different markers.
@@ -428,6 +460,89 @@ const { markerId, size } = await plugin.loadMarker(
 );
 ```
 
+<a id="tracking-a-barcode-marker-"></a>
+
+### Tracking a barcode marker 🔢
+
+Barcode (matrix code) markers encode their ID in the marker itself, so there
+is no file to load: register the ID you want to follow.
+
+```js
+const plugin = new ArtoolkitPlugin({
+  wasmUrl,
+  cameraParametersUrl,
+  detectionMode: "color_and_matrix", // pattern + barcode in the same frame
+  matrixCodeType: "3x3", // the engine default
+});
+// ... register, enable, start sending frames ...
+
+await plugin.trackBarcode(5, 1); // barcode ID 5, width 1
+
+engine.eventBus.on("ar:markerFound", ({ markerId, type }) => {
+  if (type === "barcode" && markerId === 5) {
+    /* … */
+  }
+});
+```
+
+- **Detection mode.** ARToolKit reports barcodes only in `matrix`,
+  `color_and_matrix` or `mono_and_matrix` mode. If the current mode cannot see
+  barcodes, `trackBarcode` switches it to `color_and_matrix` (or
+  `mono_and_matrix` from `mono`) and logs a warning. Use `matrix` alone if you
+  track no pattern markers.
+- **IDs depend on `matrixCodeType`.** `3x3` encodes IDs 0–63; `4x4` 0–8191;
+  the BCH and parity variants trade range for error correction. Generate
+  markers for the same dictionary you configure.
+- **Pattern and barcode IDs are independent.** Barcode 0 and the first loaded
+  pattern (also ID 0) are different markers. Key your own state on
+  `type:markerId`.
+- **Order.** Like `loadMarker`, `trackBarcode` needs the worker running. It
+  may be called before frames flow: the barcode is registered when the
+  detector initialises on the first frame, and the promise settles then, so
+  it tells you whether the registration was accepted. Like every request it
+  times out after 10 s; if no frame arrives by then the call rejects, though
+  the barcode is still registered once one does.
+
+<a id="configuring-the-detector-"></a>
+
+### Configuring the detector 🎛️
+
+artoolkit5-ts detector options can be set at construction (`detectionMode`,
+`matrixCodeType`, `minConfidence`, and anything else under `detector`) and
+changed at runtime. Only the keys you pass change, and `minConfidence` only
+for the families you pass: `{ barcode: 0.8 }` leaves the pattern floor as it
+was.
+
+```js
+const plugin = new ArtoolkitPlugin({
+  wasmUrl,
+  minConfidence: { pattern: 0.6, barcode: 0.5 },
+  detector: { thresholdMode: "auto_otsu" },
+});
+
+// later, e.g. from a debug UI
+await plugin.configureDetector({ threshold: 120, thresholdMode: "manual" });
+```
+
+| Option                  | Values                                                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `detectionMode`         | `color` (default), `mono`, `matrix`, `color_and_matrix`, `mono_and_matrix`                                                                     |
+| `matrixCodeType`        | `3x3` (default), `3x3_PARITY65`, `3x3_HAMMING63`, `4x4`, `4x4_BCH_13_9_3`, `4x4_BCH_13_5_5`, `5x5`, `5x5_BCH_22_7_7`, `5x5_BCH_22_12_5`, `6x6` |
+| `thresholdMode`         | `manual`, `auto_median`, `auto_otsu`, `auto_bracketing`                                                                                        |
+| `threshold`             | 0–255, used when `thresholdMode` is `manual`                                                                                                   |
+| `labelingMode`          | `black_region` (default), `white_region`                                                                                                       |
+| `imageProcMode`         | `frame`, `field`                                                                                                                               |
+| `patternRatio`          | between 0 and 1, exclusive                                                                                                                     |
+| `nearPlane`, `farPlane` | projection clipping planes                                                                                                                     |
+| `minConfidence`         | number for both families, or `{ pattern, barcode }`                                                                                            |
+
+An invalid value rejects `configureDetector`; the other options in the same
+call still take effect. Called before the first frame, `configureDetector`
+settles once the detector initialises, so the rejection still reaches the
+caller. An invalid value set at construction is left out and reported through
+`ar:workerError` once the detector initialises; everything else, queued
+barcodes included, is applied as usual.
+
 <a id="examples-"></a>
 
 ## Examples 🧪
@@ -465,12 +580,15 @@ The example demonstrates:
 ```text
 {
   worker?: boolean;            // Enable worker (default: true)
-  lostThreshold?: number;      // Consecutive missed frames before 'lost' (default: 5)
-  frameDurationMs?: number;    // ms per frame used with lostThreshold (default: 200)
-  sweepIntervalMs?: number;    // Lost-sweep interval (default: 100)
+  lostThreshold?: number;      // Consecutive processed frames without a marker before 'lost' (default: 5)
+  frameDurationMs?: number;    // Expected ms per frame; stall guard fires after lostThreshold × this with no frame processed (default: 200)
+  sweepIntervalMs?: number;    // Stall-guard check interval (default: 100)
   cameraParametersUrl?: string;// Camera params file URL (required unless you rely on a remote default)
-  wasmUrl?: string;            // URL of the artoolkit5.wasm binary — effectively required, see Troubleshooting
-  minConfidence?: number;      // Drop detections below this confidence, 0-1 (default: 0.6)
+  wasmUrl: string;             // URL of the artoolkit5.wasm binary — effectively required, see Troubleshooting
+  minConfidence?: number | { pattern?: number, barcode?: number }; // 0-1 (default: 0.6 for both)
+  detectionMode?: string;      // See Configuring the detector (default: engine 'color')
+  matrixCodeType?: string;     // Barcode dictionary (default: engine '3x3')
+  detector?: object;           // Other artoolkit5-ts DetectorOptions, passed through
 }
 ```
 
@@ -483,30 +601,27 @@ The example demonstrates:
 - `async disable()` — stop worker and timers
 - `dispose()` — alias for disable
 - `getMarkerState(markerId, type = 'pattern')` — current tracked state for that marker
-- `async loadMarker(patternUrl: string, size = 1)` — load and track a pattern
+- `async loadMarker(patternUrl: string, size = 1)` — load and track a pattern; resolves `{ markerId, size }`
+- `async trackBarcode(barcodeId: number, size = 1)` — track a barcode; resolves `{ markerId, size, detectionMode }`
+- `async configureDetector(opts)` — change detector options at runtime; resolves `{ config }`
 
 <a id="troubleshooting-"></a>
 
 ## Troubleshooting 🧰
 
 - **`loadMarker()` hangs for about ten seconds, then rejects with
-  `"loadMarker request timed out"` — with no `ar:workerError` and nothing
-  else logged:**
+  `"loadMarker request timed out"`:**
 
-  This symptom has two distinct causes. Both produce the identical hang, so
-  if fixing one doesn't help, check the other.
-  - **Cause 1: missing or unreachable `wasmUrl`.**
+  This symptom has two distinct causes. If fixing one doesn't help, check the
+  other.
+  - **Cause 1: missing or unreachable `wasmUrl`.** Since 0.3.0 this also
+    fires `ar:workerError` with `ARToolKit initialisation failed …` as soon as
+    the first frame arrives.
     - Without `wasmUrl`, artoolkit5-ts resolves the WASM binary as a bare
       filename relative to the worker chunk. Vite's library build does not
       copy `artoolkit5.wasm` into `dist/`, so that lookup 404s.
-    - That failure is caught and retried with backoff inside the detector
-      rather than thrown, so it never reaches the worker's top-level error
-      handler and no `ar:workerError` fires. The detector only gives up (and
-      rejects its readiness) after six consecutive failures, which takes far
-      longer than ten seconds at its backoff schedule — so in practice
-      `plugin.loadMarker()` always hits its own 10-second client-side
-      timeout first. The visible symptom is a silent hang, not a visible
-      error.
+    - Initialisation keeps retrying with backoff, so `loadMarker()` still
+      waits until its own 10-second timeout.
     - Fix: pass `wasmUrl` pointing at the binary —
       `node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm` after
       `npm install`, served however you serve the rest of your static
@@ -536,6 +651,9 @@ The example demonstrates:
 - No detections:
   - Confirm camera started, correct marker pattern, sufficient lighting
   - Adjust `minConfidence` to reduce/raise filtering
+- Barcode never detected:
+  - Check that `matrixCodeType` matches the dictionary the marker was generated for, and that the ID is in its range (0–63 for `3x3`)
+  - Barcodes need a matrix-capable `detectionMode`; `trackBarcode` switches to one automatically, but a later `configureDetector({ detectionMode: 'color' })` turns barcode detection off again
   - Check `plugin.version` (if 'unknown', ensure build-time define is configured)
 
 ## Build & Publishing Notes

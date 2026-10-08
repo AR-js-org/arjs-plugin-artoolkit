@@ -83,11 +83,14 @@ function usableDir(dir) {
  * @param {Object} options - Configuration options
  * @param {boolean} [options.worker=true] - Enable worker-based detection
  * @param {number} [options.lostThreshold=5] - Consecutive frames the detector must report a marker missing before it is marked lost (see _applyLost); also scales the staleness-sweep timeout (see _sweepMarkers)
- * @param {number} [options.frameDurationMs=200] - Milliseconds per frame (for lost calculation)
- * @param {number} [options.sweepIntervalMs=100] - Interval for running lost-marker sweep
+ * @param {number} [options.frameDurationMs=200] - Expected milliseconds per processed frame. Only used for the stall guard: when no frame has been processed for `lostThreshold * frameDurationMs`, every tracked marker is reported lost (see _sweepMarkers)
+ * @param {number} [options.sweepIntervalMs=100] - Interval for running the stall guard
  * @param {string} [options.cameraParametersUrl] - Camera calibration parameters URL
- * @param {string} [options.wasmUrl] - Explicit URL for the ARToolKit WASM binary
- * @param {number} [options.minConfidence=0.6] - Drop detections below this confidence (0-1)
+ * @param {string} options.wasmUrl - URL of `artoolkit5.wasm`. **Effectively required**: the library build does not ship the binary, and without it the default resolves relative to the worker chunk and 404s. Point it at `@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm` (e.g. with Vite's `?url` import). A failed load is reported through `ar:workerError`.
+ * @param {number|{pattern?: number, barcode?: number}} [options.minConfidence=0.6] - Drop detections below this confidence (0-1), for both families or per family
+ * @param {string} [options.detectionMode] - artoolkit5-ts detection mode: 'color' (engine default), 'mono', 'matrix', 'color_and_matrix' or 'mono_and_matrix'. Switched automatically to a matrix-capable mode by {@link ArtoolkitPlugin#trackBarcode}
+ * @param {string} [options.matrixCodeType] - Barcode dictionary, e.g. '3x3' (engine default), '4x4', '4x4_BCH_13_9_3'
+ * @param {Object} [options.detector] - Other artoolkit5-ts `DetectorOptions` passed through as is: `threshold`, `thresholdMode`, `labelingMode`, `imageProcMode`, `patternRatio`, `nearPlane`, `farPlane`
  *
  * @example
  * const plugin = new ArtoolkitPlugin({
@@ -117,6 +120,9 @@ export class ArtoolkitPlugin {
       cameraParametersUrl: undefined,
       wasmUrl: undefined,
       minConfidence: 0.6,
+      detectionMode: undefined,
+      matrixCodeType: undefined,
+      detector: undefined,
       ...options,
     };
     /** @type {EngineCore | null} */
@@ -149,9 +155,14 @@ export class ArtoolkitPlugin {
     this.sweepIntervalMs = this.options.sweepIntervalMs;
     this.workerEnabled = this.options.worker;
 
-    // Pending loadMarker requests: Map<requestId, { resolve, reject }>
+    // Pending worker requests (loadMarker, trackBarcode, configure):
+    // Map<requestId, { resolve, reject }>
     this._pendingMarkerLoads = new Map();
     this._nextLoadRequestId = 0;
+
+    // When the worker last acknowledged a frame; the stall guard measures
+    // from here (see _sweepMarkers).
+    this._lastFrameAt = 0;
 
     // Track worker readiness (used by examples to avoid UI race)
     this.workerReady = false;
@@ -318,6 +329,10 @@ export class ArtoolkitPlugin {
           "Artoolkit worker postMessage (ImageBitmap) failed, falling back to frameId only",
           err,
         );
+        // The transfer did not happen, so the bitmap is still ours to free.
+        // close() on an already-detached bitmap is a no-op, so this is safe
+        // whichever side of the transfer step the failure was on.
+        frame.imageBitmap.close?.();
         try {
           this._worker.postMessage({
             type: "processFrame",
@@ -331,17 +346,21 @@ export class ArtoolkitPlugin {
       return;
     }
 
+    // No worker to hand the bitmap to: nothing else will free it.
+    if (!this._worker) {
+      frame.imageBitmap?.close?.();
+      return;
+    }
+
     // No ImageBitmap: send lighter payload as before (frameId)
-    if (this._worker) {
-      try {
-        this._worker.postMessage({
-          type: "processFrame",
-          payload: { frameId: frame.id },
-        });
-        this._frameInFlight = true;
-      } catch (err) {
-        console.warn("Artoolkit worker postMessage failed", err);
-      }
+    try {
+      this._worker.postMessage({
+        type: "processFrame",
+        payload: { frameId: frame.id },
+      });
+      this._frameInFlight = true;
+    } catch (err) {
+      console.warn("Artoolkit worker postMessage failed", err);
     }
   }
 
@@ -376,6 +395,7 @@ export class ArtoolkitPlugin {
         cameraParametersUrl: this.options.cameraParametersUrl || null,
         wasmUrl: this.options.wasmUrl || null,
         minConfidence: this.options.minConfidence,
+        detectorOptions: this._detectorOptions(),
       },
     });
 
@@ -385,6 +405,27 @@ export class ArtoolkitPlugin {
         this._worker?.postMessage({ type: "init", payload: {} });
       }
     }, 500);
+  }
+
+  /**
+   * The artoolkit5-ts `DetectorOptions` given at construction, without
+   * `minConfidence` (sent separately) and without unset keys, so the engine
+   * defaults stay in force for anything the caller did not choose.
+   *
+   * @returns {Object}
+   * @private
+   */
+  _detectorOptions() {
+    const { detectionMode, matrixCodeType, detector } = this.options;
+    // The top-level options win, but only when set: an unset one must not
+    // erase the same key given through `detector`.
+    const opts = { ...detector };
+    if (detectionMode !== undefined) opts.detectionMode = detectionMode;
+    if (matrixCodeType !== undefined) opts.matrixCodeType = matrixCodeType;
+    for (const key of Object.keys(opts)) {
+      if (opts[key] === undefined) delete opts[key];
+    }
+    return opts;
   }
 
   /**
@@ -406,6 +447,10 @@ export class ArtoolkitPlugin {
    * `_onEngineUpdate` dropping every frame forever, even after a fresh
    * worker starts — a restarted worker must not be born blocked.
    *
+   * Rejects every request still waiting on a reply (`loadMarker`,
+   * `trackBarcode`, `configureDetector`), since the stopped worker can no
+   * longer send one.
+   *
    * @private
    */
   _stopWorker() {
@@ -423,6 +468,13 @@ export class ArtoolkitPlugin {
 
     worker.removeEventListener("message", this._onWorkerMessage);
     setTimeout(() => worker.terminate(), 0);
+
+    // No reply can arrive any more: fail the callers now rather than at
+    // their timeout. Their timers find the request gone and do nothing.
+    for (const { reject } of this._pendingMarkerLoads.values()) {
+      reject(new Error("Worker stopped before replying"));
+    }
+    this._pendingMarkerLoads.clear();
   }
 
   /**
@@ -467,10 +519,12 @@ export class ArtoolkitPlugin {
    * {@link usableVertex} and {@link usableDir}. Nothing is fabricated, so a
    * detection that arrives without them emits without them rather than with
    * invented values.
+   * @returns {Set<string>} Registry keys of the markers seen this frame
    * @private
    */
   _applyDetections(detected) {
-    if (!Array.isArray(detected)) return;
+    const seen = new Set();
+    if (!Array.isArray(detected)) return seen;
 
     for (const pose of detected) {
       const { id, type } = pose || {};
@@ -478,6 +532,7 @@ export class ArtoolkitPlugin {
 
       const now = Date.now();
       const key = this._markerKey(id, type);
+      seen.add(key);
       const matrix =
         pose.matrixGL instanceof Float32Array
           ? pose.matrixGL
@@ -515,54 +570,46 @@ export class ArtoolkitPlugin {
         this.core?.eventBus?.emit("ar:markerUpdated", payload);
       }
     }
+    return seen;
   }
 
   /**
-   * Debounce and apply `ar:markerLost` for markers the detector reports as
-   * missing on this frame.
+   * Debounce and apply `ar:markerLost` for tracked markers absent from the
+   * frame just processed.
    *
    * ARToolKit routinely fails to detect a well-tracked marker on an isolated
    * frame - angle, motion blur, lighting - so a single miss must not be
-   * treated as a loss. Each report increments the entry's
-   * `consecutiveMisses` counter; while that counter stays below
-   * `lostThreshold` the marker stays in the registry and nothing is
-   * emitted. Only once it reaches `lostThreshold` does `ar:markerLost` fire,
-   * and the entry is removed at that point so a later detection correctly
-   * emits `ar:markerFound` rather than `ar:markerUpdated`. Any detection
-   * seen in the meantime resets the counter to 0 (see
+   * treated as a loss. Every processed frame in which a tracked marker is
+   * absent increments its `consecutiveMisses` counter; while that counter
+   * stays below `lostThreshold` the marker stays in the registry and nothing
+   * is emitted. Only once it reaches `lostThreshold` does `ar:markerLost`
+   * fire, and the entry is removed at that point so a later detection
+   * correctly emits `ar:markerFound` rather than `ar:markerUpdated`. Any
+   * detection seen in the meantime resets the counter to 0 (see
    * {@link _applyDetections}), so reaching the threshold requires
-   * `lostThreshold` *consecutive* misses, not a running total.
+   * `lostThreshold` *consecutive* missed frames, not a running total.
    *
-   * A lost report for an untracked marker is ignored: confidence filtering can
-   * drop a detection the library still considers tracked, so the plugin may
-   * never have seen it.
+   * The counter advances on absence from `detected`, not on the library's
+   * `lost` list: artoolkit5-ts reports a loss exactly once, on the frame the
+   * marker disappears, so counting `lost` entries never got past 1 (#38).
+   * Absence also covers a detection dropped by confidence filtering, which the
+   * library may not report as lost at all.
    *
-   * @param {Array<Object>} lost - Entries of `{ id, type }`
+   * @param {Set<string>} seen - Registry keys detected this frame
    * @private
    */
-  _applyLost(lost) {
-    if (!Array.isArray(lost)) return;
-
-    for (const entry of lost) {
-      const { id, type } = entry || {};
-      if (id === null || id === undefined || !type) continue;
-
-      const key = this._markerKey(id, type);
-      const prev = this._markers.get(key);
-      if (!prev) continue;
+  _applyMisses(seen) {
+    for (const [key, prev] of this._markers.entries()) {
+      if (seen.has(key)) continue;
 
       prev.visible = false;
       prev.consecutiveMisses = (prev.consecutiveMisses || 0) + 1;
-
-      if (prev.consecutiveMisses < this.lostThreshold) {
-        this._markers.set(key, prev);
-        continue;
-      }
+      if (prev.consecutiveMisses < this.lostThreshold) continue;
 
       this._markers.delete(key);
       this.core?.eventBus?.emit("ar:markerLost", {
-        markerId: id,
-        type,
+        markerId: prev.id,
+        type: prev.type,
         timestamp: Date.now(),
       });
     }
@@ -598,24 +645,38 @@ export class ArtoolkitPlugin {
       this.core?.eventBus?.emit("ar:workerReady", {});
     } else if (type === "detectionResult") {
       this._frameInFlight = false;
+      // A frame acknowledged without being analysed (no ImageBitmap, or no
+      // detector yet) says nothing about which markers are in view: it is not
+      // a miss, and not a processed frame for the stall guard either.
+      if (payload?.skipped) return;
+      this._lastFrameAt = Date.now();
       if (!payload) return;
-      this._applyDetections(payload.detected);
-      this._applyLost(payload.lost);
-    } else if (type === "loadMarkerResult") {
-      console.log("[Plugin] Received loadMarkerResult:", payload);
-      const { requestId, ok, error, markerId, size } = payload || {};
+      this._applyMisses(this._applyDetections(payload.detected));
+    } else if (
+      type === "loadMarkerResult" ||
+      type === "trackBarcodeResult" ||
+      type === "configureResult"
+    ) {
+      const { requestId, ok, error, ...result } = payload || {};
 
       if (requestId !== undefined) {
         const pending = this._pendingMarkerLoads.get(requestId);
         if (pending) {
           this._pendingMarkerLoads.delete(requestId);
           if (ok) {
-            pending.resolve({ markerId, size });
+            pending.resolve(result);
           } else {
-            pending.reject(new Error(error || "Failed to load marker"));
+            pending.reject(new Error(error || `${type}: request failed`));
           }
         }
       }
+    } else if (type === "initError") {
+      // Reported while initialisation keeps retrying, so a missing WASM
+      // binary is diagnosed at once (#40). Does not touch the in-flight flag:
+      // the frame that triggered it is still acknowledged by its own
+      // detectionResult.
+      console.error("Artoolkit worker initialisation error", payload);
+      this.core?.eventBus?.emit("ar:workerError", payload);
     } else if (type === "error") {
       console.error("Artoolkit worker error", payload);
       this._frameInFlight = false;
@@ -624,23 +685,26 @@ export class ArtoolkitPlugin {
   }
 
   /**
-   * Emit `ar:markerLost` for markers that have gone stale.
+   * Stall guard: emit `ar:markerLost` for every tracked marker once frames
+   * stop being processed.
    *
-   * The detector reports losses itself, on the frame a marker disappears, and
-   * that is the primary path. This sweep covers what the detector structurally
-   * cannot see: frames that stop arriving at all — a stalled camera, a
-   * backgrounded tab, a dead worker — where `processFrame` is never called and
-   * a visible marker would otherwise stay visible forever.
+   * Loss is normally decided per processed frame (see {@link _applyMisses}).
+   * That cannot see frames that stop arriving at all — a stalled camera, a
+   * backgrounded tab, a dead worker — where a visible marker would otherwise
+   * stay visible forever. So this measures the stall, not the marker: it acts
+   * only when no frame has been acknowledged for
+   * `lostThreshold * frameDurationMs`. A slow but live pipeline never trips
+   * it, so at low frame rates loss still takes `lostThreshold` missed frames
+   * (#38).
    *
    * @private
    */
   _sweepMarkers() {
     const now = Date.now();
-    const lostThresholdMs = this.lostThreshold * this.frameDurationMs;
+    const stallMs = this.lostThreshold * this.frameDurationMs;
+    if (now - this._lastFrameAt <= stallMs) return;
 
     for (const [key, state] of this._markers.entries()) {
-      if (now - (state.lastSeen || 0) <= lostThresholdMs) continue;
-
       this._markers.delete(key);
       this.core?.eventBus?.emit("ar:markerLost", {
         markerId: state.id,
@@ -687,28 +751,102 @@ export class ArtoolkitPlugin {
 
     console.log(`[Plugin] Loading marker: ${patternUrl} with size ${size}`);
 
+    return this._request("loadMarker", { patternUrl, size });
+  }
+
+  /**
+   * Track a barcode (matrix code) marker.
+   *
+   * Barcodes need no file: the ID is encoded in the marker itself. If
+   * `detectionMode` cannot detect barcodes it is switched to the closest mode
+   * that can (`'color_and_matrix'`, or `'mono_and_matrix'` from `'mono'`) and
+   * a warning is logged. Pattern and barcode IDs are independent, so barcode 0
+   * and pattern 0 are different markers; events tell them apart by `type`.
+   *
+   * Can be called before frames flow: the barcode is registered when the
+   * detector initialises on the first frame, and the promise settles then. If
+   * no frame arrives within the request timeout (10 s) the call rejects, but
+   * the barcode is still registered once a frame does.
+   *
+   * @param {number} barcodeId - ID encoded in the marker (for '3x3', 0-63)
+   * @param {number} [size=1] - Marker width in world units
+   * @returns {Promise<{markerId: number, size: number, detectionMode: string}>}
+   *
+   * @example
+   * await plugin.trackBarcode(5, 1);
+   * core.eventBus.on('ar:markerFound', (e) => {
+   *   if (e.type === 'barcode' && e.markerId === 5) { ... }
+   * });
+   */
+  async trackBarcode(barcodeId, size = 1) {
+    if (!this._worker) {
+      throw new Error(
+        "Worker not available. Ensure plugin is enabled and worker is running.",
+      );
+    }
+    return this._request("trackBarcode", { barcodeId, size });
+  }
+
+  /**
+   * Change detector settings at runtime.
+   *
+   * Only the keys present are changed, and `minConfidence` only for the
+   * families present. Keys are applied one at a time: when one is refused the
+   * call rejects, but the others still take effect. Called before the first
+   * frame, the promise settles once the detector initialises and applies it.
+   * Accepts artoolkit5-ts `DetectorOptions`:
+   * `detectionMode`, `matrixCodeType`, `threshold`, `thresholdMode`,
+   * `labelingMode`, `imageProcMode`, `patternRatio`, `nearPlane`, `farPlane`
+   * and `minConfidence` (a number, or `{ pattern, barcode }`).
+   *
+   * @param {Object} opts - Settings to change
+   * @returns {Promise<{config: Object}>} The full configuration now in effect
+   * @throws {Error} If an option is rejected by artoolkit5-ts
+   *
+   * @example
+   * await plugin.configureDetector({ thresholdMode: 'auto_otsu' });
+   */
+  async configureDetector(opts = {}) {
+    if (!this._worker) {
+      throw new Error(
+        "Worker not available. Ensure plugin is enabled and worker is running.",
+      );
+    }
+    return this._request("configure", { opts });
+  }
+
+  /**
+   * Post a request to the worker and wait for its `<type>Result` reply.
+   *
+   * @param {string} type - Worker message type
+   * @param {Object} payload - Message payload; `requestId` is added here
+   * @param {number} [timeoutMs=10000] - Reject if no reply arrives in time
+   * @returns {Promise<Object>} The reply payload, minus `ok` and `requestId`
+   * @private
+   */
+  _request(type, payload, timeoutMs = 10000) {
     return new Promise((resolve, reject) => {
       const requestId = this._nextLoadRequestId++;
       this._pendingMarkerLoads.set(requestId, { resolve, reject });
 
-      // Send loadMarker message to worker
       try {
         this._worker.postMessage({
-          type: "loadMarker",
-          payload: { patternUrl, size, requestId },
+          type,
+          payload: { ...payload, requestId },
         });
       } catch (err) {
         this._pendingMarkerLoads.delete(requestId);
-        reject(new Error(`Failed to send loadMarker message: ${err.message}`));
+        reject(new Error(`Failed to send ${type} message: ${err.message}`));
+        return;
       }
 
-      // Set a timeout to prevent hanging promises
+      // Prevent hanging promises
       setTimeout(() => {
         if (this._pendingMarkerLoads.has(requestId)) {
           this._pendingMarkerLoads.delete(requestId);
-          reject(new Error("loadMarker request timed out"));
+          reject(new Error(`${type} request timed out`));
         }
-      }, 10000); // 10 second timeout
+      }, timeoutMs);
     });
   }
 }
