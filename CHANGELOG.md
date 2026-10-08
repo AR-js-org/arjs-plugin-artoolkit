@@ -12,7 +12,7 @@ sections cover each breaking release in more detail.
 
 ## [0.3.0] - 2026-10-08
 
-Planned as 0.3.0. No breaking API changes.
+No breaking API changes.
 
 ### Added
 
