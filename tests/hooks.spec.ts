@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 /**
  * The Claude Code hooks in `.claude/hooks/`, run as Claude Code runs them: a
@@ -23,19 +23,18 @@ const ROOT = resolve(__dirname, "..");
 const GUARD = join(ROOT, ".claude/hooks/guard-protected-branches.mjs");
 const FORMAT = join(ROOT, ".claude/hooks/format-on-edit.mjs");
 
-// The fixture repositories run git with an empty global configuration and no
-// system one, so whoever runs the tests contributes nothing: a global
-// `commit.gpgsign`, `core.hooksPath` or template would otherwise sign, hook or
-// seed the fixture commits, and a signing prompt stalls setup until it times
-// out. Identity comes through the environment, so no command line carries it.
-const FIXTURE_GITCONFIG = join(
-  mkdtempSync(join(tmpdir(), "fixture-gitconfig-")),
-  "gitconfig",
-);
-writeFileSync(FIXTURE_GITCONFIG, "");
-const GIT_ENV = {
-  ...process.env,
-  GIT_CONFIG_GLOBAL: FIXTURE_GITCONFIG,
+// Git in the fixtures, and in the hooks run against them, must see nothing of
+// whoever runs the tests. Every inherited GIT_* variable is dropped: config
+// injected through GIT_CONFIG_COUNT/KEY/VALUE or GIT_CONFIG_PARAMETERS would
+// otherwise sign or hook the fixture commits (a signing prompt stalls setup
+// until it times out), and GIT_DIR/GIT_INDEX_FILE, set when the tests run
+// inside a git hook, would point git at this repository instead of a fixture.
+// The guard suite then adds an empty global configuration and no system one.
+// Identity comes through the environment, so no command line carries it.
+const GIT_ENV: Record<string, string | undefined> = {
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)),
+  ),
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_AUTHOR_NAME: "fixture",
   GIT_AUTHOR_EMAIL: "fixture@example.invalid",
@@ -52,6 +51,7 @@ function git(cwd: string, ...args: string[]) {
 function runHook(hook: string, input: object) {
   const r = spawnSync(process.execPath, [hook], {
     input: JSON.stringify(input),
+    env: GIT_ENV,
     encoding: "utf8",
   });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -73,6 +73,9 @@ describe("guard-protected-branches", () => {
 
   beforeAll(() => {
     base = mkdtempSync(join(tmpdir(), "guard-"));
+    // Inside `base`, so it exists only while this suite runs and goes with it.
+    GIT_ENV.GIT_CONFIG_GLOBAL = join(base, "gitconfig");
+    writeFileSync(GIT_ENV.GIT_CONFIG_GLOBAL, "");
     const remote = join(base, "remote.git");
     git(base, "init", "--bare", "-b", "main", remote);
 
@@ -100,7 +103,6 @@ describe("guard-protected-branches", () => {
 
   afterAll(() => {
     rmSync(base, { recursive: true, force: true });
-    rmSync(dirname(FIXTURE_GITCONFIG), { recursive: true, force: true });
   });
 
   it("blocks a commit on main and allows one on a feature branch", () => {
