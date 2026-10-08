@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 /**
  * The Claude Code hooks in `.claude/hooks/`, run as Claude Code runs them: a
@@ -23,10 +23,20 @@ const ROOT = resolve(__dirname, "..");
 const GUARD = join(ROOT, ".claude/hooks/guard-protected-branches.mjs");
 const FORMAT = join(ROOT, ".claude/hooks/format-on-edit.mjs");
 
-// Identity for the fixture repositories only, through the environment so no
-// command line carries it.
+// The fixture repositories run git with an empty global configuration and no
+// system one, so whoever runs the tests contributes nothing: a global
+// `commit.gpgsign`, `core.hooksPath` or template would otherwise sign, hook or
+// seed the fixture commits, and a signing prompt stalls setup until it times
+// out. Identity comes through the environment, so no command line carries it.
+const FIXTURE_GITCONFIG = join(
+  mkdtempSync(join(tmpdir(), "fixture-gitconfig-")),
+  "gitconfig",
+);
+writeFileSync(FIXTURE_GITCONFIG, "");
 const GIT_ENV = {
   ...process.env,
+  GIT_CONFIG_GLOBAL: FIXTURE_GITCONFIG,
+  GIT_CONFIG_NOSYSTEM: "1",
   GIT_AUTHOR_NAME: "fixture",
   GIT_AUTHOR_EMAIL: "fixture@example.invalid",
   GIT_COMMITTER_NAME: "fixture",
@@ -85,10 +95,12 @@ describe("guard-protected-branches", () => {
     git(unfetched, "add", ".");
     git(unfetched, "commit", "-m", "init");
     git(unfetched, "remote", "add", "origin", remote);
-  });
+    // A dozen git processes: slow where every spawn is scanned, as on Windows.
+  }, 60000);
 
   afterAll(() => {
     rmSync(base, { recursive: true, force: true });
+    rmSync(dirname(FIXTURE_GITCONFIG), { recursive: true, force: true });
   });
 
   it("blocks a commit on main and allows one on a feature branch", () => {
