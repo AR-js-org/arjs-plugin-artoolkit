@@ -62,6 +62,8 @@ Planned as 0.3.0. No breaking API changes.
 - Tests for the worker's message protocol and a plugin-to-worker round trip
   (part of #29).
 - Dev dependencies updated within their major versions.
+- `release.yml` runs on tag pushes only. Its manual dispatch named the release
+  after a `tag` input but built the dispatched ref (#39).
 
 ## [0.2.0] - 2026-10-05
 

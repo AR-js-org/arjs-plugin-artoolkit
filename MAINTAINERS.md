@@ -57,9 +57,10 @@ the release assets.
 - Re-run `publish.yml` alone via `workflow_dispatch` with `tag: vX.Y.Z`. Its
   guards refuse a tag that is not `vX.Y.Z`, disagrees with `package.json`, or
   is already on npm.
-- Re-running `release.yml` is safe (`gh release upload --clobber`). Until #39
-  is fixed, dispatch it **from the tag ref**: its `tag` input names the
-  release but the jobs build whatever ref they were dispatched from.
+- `release.yml` runs on tag pushes only; it has no manual dispatch (#39). To
+  rebuild or re-attach the assets, open the run the tag push started and use
+  **Re-run all jobs**: the re-run keeps the tag as its ref, and the upload
+  replaces the existing assets (`gh release upload --clobber`).
 
 ## Trusted publishing traps
 
