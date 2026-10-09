@@ -229,17 +229,31 @@ self.addEventListener("message", async (ev) => {
 
       // ensureReady and ensureCanvas can both throw; the bitmap is a
       // full-resolution buffer and must be released either way.
+      let ready = false;
       try {
-        const ready = await detector.ensureReady(w, h);
-        // Once, before this frame's detectionResult, so a renderer has the
-        // projection before the first pose it applies.
-        if (ready && !cameraSent) sendCamera(w, h);
-        ensureCanvas(w, h);
+        ready = await detector.ensureReady(w, h);
+        if (ready) {
+          // Once, before this frame's detectionResult, so a renderer has the
+          // projection before the first pose it applies.
+          if (!cameraSent) sendCamera(w, h);
+          ensureCanvas(w, h);
 
-        offscreenCtx.clearRect(0, 0, w, h);
-        offscreenCtx.drawImage(imageBitmap, 0, 0, w, h);
+          offscreenCtx.clearRect(0, 0, w, h);
+          offscreenCtx.drawImage(imageBitmap, 0, 0, w, h);
+        }
       } finally {
         imageBitmap.close?.();
+      }
+
+      // No ARToolKit state yet (initialisation failing and backing off):
+      // nothing can be analysed, and empty lists would read as every tracked
+      // marker missing this frame (#52). Acknowledge it as skipped.
+      if (!ready) {
+        sendMessage({
+          type: "detectionResult",
+          payload: { frameId, detected: [], lost: [], skipped: true },
+        });
+        return;
       }
 
       const pixels = offscreenCtx.getImageData(0, 0, w, h).data;

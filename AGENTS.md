@@ -103,8 +103,9 @@ must be called only after at least one frame has reached the worker.
 
 `detectionResult` is sent exactly once per `processFrame` received, always —
 including when both `detected` and `lost` are empty, and for a frame the
-worker skips outright (no `ImageBitmap` on the payload, or the detector not
-yet constructed). A skipped frame carries `skipped: true`: the plugin releases
+worker skips outright (no `ImageBitmap` on the payload, the detector not yet
+constructed, or no ARToolKit state yet because initialisation is failing and
+backing off, #52). A skipped frame carries `skipped: true`: the plugin releases
 the in-flight slot but does not read its empty lists as every marker going
 missing, nor count it as a processed frame for the stall guard. This
 acknowledgement is load-bearing, not a courtesy:
