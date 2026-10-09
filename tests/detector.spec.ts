@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   loadPatternMarker: vi.fn(),
   trackMarker: vi.fn(),
   processFrame: vi.fn(),
+  getCameraProjectionMatrix: vi.fn(),
 }));
 
 vi.mock("@ar-js-org/artoolkit5-ts", () => mocks);
@@ -60,6 +61,56 @@ describe("artoolkit-detector", () => {
       "/camera_para.dat",
       undefined,
     );
+  });
+
+  it("getProjectionMatrix returns null before ensureReady and the artoolkit5-ts matrix after", async () => {
+    const lens = Float64Array.from({ length: 16 }, (_, i) => i);
+    mocks.getCameraProjectionMatrix.mockReturnValue(lens);
+    const detector = createDetector({ cameraParametersUrl: "/cam.dat" });
+
+    expect(detector.getProjectionMatrix()).toBeNull();
+
+    await detector.ensureReady(640, 480);
+
+    expect(Array.from(detector.getProjectionMatrix()!)).toEqual(
+      Array.from(lens),
+    );
+    expect(mocks.getCameraProjectionMatrix).toHaveBeenCalledTimes(1);
+    expect(mocks.getCameraProjectionMatrix).toHaveBeenCalledWith({
+      id: "state",
+    });
+  });
+
+  it("the projection reflects nearPlane and farPlane given at construction", async () => {
+    mocks.getCameraProjectionMatrix.mockReturnValue(new Float64Array(16));
+    const detector = createDetector({ detectorOptions: { farPlane: 5000 } });
+
+    await detector.ensureReady(640, 480);
+    detector.getProjectionMatrix();
+
+    const planes = mocks.configureDetector.mock.calls.findIndex(
+      ([, opts]) => "farPlane" in (opts as object),
+    );
+    expect(planes).toBeGreaterThanOrEqual(0);
+    expect(
+      mocks.configureDetector.mock.invocationCallOrder[planes],
+    ).toBeLessThan(
+      mocks.getCameraProjectionMatrix.mock.invocationCallOrder.at(-1)!,
+    );
+  });
+
+  it("the projection follows a later configure of farPlane", async () => {
+    const before = Float64Array.from({ length: 16 }, () => 1);
+    const after = Float64Array.from({ length: 16 }, () => 2);
+    mocks.getCameraProjectionMatrix.mockReturnValue(before);
+    const detector = createDetector({});
+    await detector.ensureReady(640, 480);
+    expect(detector.getProjectionMatrix()![0]).toBe(1);
+
+    mocks.getCameraProjectionMatrix.mockReturnValue(after);
+    await detector.configure({ farPlane: 5000 });
+
+    expect(detector.getProjectionMatrix()![0]).toBe(2);
   });
 
   it("creates state only once across repeated ensureReady calls", async () => {

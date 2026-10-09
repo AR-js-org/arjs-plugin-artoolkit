@@ -16,7 +16,7 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 
 - [Features](#features-)
 - [Version](#version-)
-- [Changelog](CHANGELOG.md)
+- [Changelog](https://github.com/AR-js-org/arjs-plugin-artoolkit/blob/main/CHANGELOG.md)
 - [Upgrading to 0.3.0](#upgrading-to-030-)
 - [Upgrading to 0.2.0](#upgrading-to-020-)
 - [Installation](#installation-)
@@ -65,7 +65,7 @@ console.log("Instance version:", plugin.version);
 If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
 
 What changed in each release, including every breaking change, is in
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](https://github.com/AR-js-org/arjs-plugin-artoolkit/blob/main/CHANGELOG.md).
 
 <a id="upgrading-to-030-"></a>
 
@@ -184,9 +184,14 @@ Barcode markers and detector options, listed here as not yet supported in
 ## Installation 📦
 
 ```bash
-# Attention: package may not be published yet
-npm install @ar-js-org/arjs-plugin-artoolkit
+npm install @ar-js-org/arjs-plugin-artoolkit @ar-js-org/artoolkit5-wasm
 ```
+
+`@ar-js-org/artoolkit5-wasm` provides the ARToolKit binary the plugin loads
+through `wasmUrl`. The plugin already depends on it indirectly, through
+`@ar-js-org/artoolkit5-ts`, but list it as a **direct** dependency: under pnpm
+and other strict installs a transitive package cannot be imported, and a
+bundler import of the binary (below) needs version 0.4.1 or later.
 
 <a id="using-the-esm-build-recommended-"></a>
 
@@ -238,6 +243,38 @@ Serving notes:
 
 - Serve from a web server so `/dist` assets resolve. The build is configured with `base: './'`, so the worker asset is referenced relative to the ESM file (e.g., `/dist/assets/worker-*.js`).
 - In your own apps, place `dist/` where you serve static assets and import the ESM with the appropriate path (absolute or relative). Do the same for `artoolkit5.wasm`: it does not have to live under `node_modules` in production, as long as `wasmUrl` points at wherever it ends up.
+
+### With a bundler (Vite) 📦
+
+A bundler can resolve the binary's URL for you. `@ar-js-org/artoolkit5-wasm`
+0.4.1 and later export `./dist/artoolkit5.wasm`, so with Vite:
+
+```js
+import { ArtoolkitPlugin } from "@ar-js-org/arjs-plugin-artoolkit";
+import wasmUrl from "@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm?url";
+
+const plugin = new ArtoolkitPlugin({
+  wasmUrl,
+  cameraParametersUrl: "/data/camera_para.dat",
+});
+```
+
+Vite copies the binary into the build and hands you its final URL, in dev and
+in production alike. Two settings in `vite.config.js` matter:
+
+```js
+export default {
+  optimizeDeps: {
+    // Pre-bundling moves the plugin into node_modules/.vite/deps, where the
+    // relative URL of its worker no longer resolves.
+    exclude: ["@ar-js-org/arjs-plugin-artoolkit"],
+  },
+};
+```
+
+With `@ar-js-org/artoolkit5-wasm` 0.4.0 the import fails with
+`Missing "./dist/artoolkit5.wasm" specifier`: that version ships the binary
+but does not export it. Depend on `^0.4.1`.
 
 <a id="using-source-development-mode-"></a>
 
@@ -359,6 +396,7 @@ The plugin emits the following events on your engine’s event bus:
 | `ar:markerLost`    | `{ markerId, type, timestamp }`                                  |
 | `ar:workerReady`   | `{}`                                                             |
 | `ar:workerError`   | `{ message }`                                                    |
+| `ar:camera`        | `{ projectionMatrix, width, height, timestamp }`                 |
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed — ready for
 WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
@@ -366,6 +404,14 @@ WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
 `type:markerId`, not `markerId` alone — pattern and barcode markers keep
 independent ID registries, so a barcode marker and a pattern marker can both
 report `markerId: 0` while being two different markers.
+
+`ar:camera` gives the camera projection to render those poses with, also a
+`Float32Array(16)`, computed by ARToolKit from your `camera_para.dat`. It fires
+when the first frame reaches the detector, and again whenever `nearPlane` or
+`farPlane` is configured, since those recompute it. Set it as your 3D camera's
+projection matrix; `arjs-plugin-threejs` does this on `ar:camera`. If your
+renderer starts later, call `artoolkit.getProjectionMatrix()`, which returns
+the current values, or `null` before the first frame.
 
 `vertex` is the detected square's four corners as `[[x, y], …]`, in the pixel
 coordinates of the **frame you submitted** — not of however the video is
@@ -447,7 +493,9 @@ plugin drops it — closing its `ImageBitmap` rather than transferring it — an
 waits for the worker to finish the one it already has. This is deliberate
 backpressure, not a bug: it keeps a slow detector from building an unbounded
 backlog (which would otherwise starve `loadMarker()` behind queued frames).
-Emit frames as often as you like; the plugin decides how many it can use.
+Emit frames as often as you like; the plugin decides how many it can use. An
+`engine:update` without an `imageBitmap`, such as the engine's own
+`{ deltaTime, context }` tick, is ignored.
 
 <a id="loading-a-pattern-marker-"></a>
 
@@ -625,7 +673,8 @@ The example demonstrates:
     - Fix: pass `wasmUrl` pointing at the binary —
       `node_modules/@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm` after
       `npm install`, served however you serve the rest of your static
-      assets. See [Using the ESM build](#using-the-esm-build-recommended-).
+      assets, or imported with `?url` under a bundler. See
+      [Using the ESM build](#using-the-esm-build-recommended-).
   - **Cause 2: `loadMarker()` was called before any frame was processed.**
     - Detector initialisation is frame-triggered, not `enable()`-triggered:
       it needs real frame dimensions, which are fixed permanently once set,

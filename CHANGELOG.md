@@ -10,6 +10,56 @@ sections cover each breaking release in more detail.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
+No breaking API changes.
+
+### Added
+
+- `ar:camera` `{ projectionMatrix, width, height, timestamp }`: the camera
+  projection matrix ARToolKit computes from `camera_para.dat`, which pairs with
+  the marker events' `matrix`. It is emitted when the first frame creates the
+  detector state, and again when `nearPlane` or `farPlane` is configured.
+  `plugin.getProjectionMatrix()` returns the current values to a renderer that
+  starts later. Without it, a 3D renderer had no way to overlay
+  content on the marker (#57).
+
+### Changed
+
+- The worker bundles the `@ar-js-org/artoolkit5-wasm` 0.4.1 glue, the same build
+  as the binary applications load through `wasmUrl` (#59).
+- The README shows importing the binary's URL with a bundler
+  (`@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm?url`, which needs 0.4.1)
+  and recommends `@ar-js-org/artoolkit5-wasm` as a direct dependency (#59).
+- The package is built with vite 8 (Rolldown). Exports, file layout and the
+  worker's relative URL are unchanged; the bundle no longer carries the JSDoc
+  comments, so the entry drops from 23 to 9 kB (#62).
+
+### Fixed
+
+- Vite dev servers no longer warn `Failed to load source map` for
+  `dist/arjs-plugin-artoolkit.es.js` and the worker. The published files ended
+  in a `sourceMappingURL` comment pointing at maps the package does not ship
+  (#12); they are now built with `sourcemap: "hidden"`. The maps are still in
+  the release's `dist.zip` (#55).
+- While ARToolKit initialisation was failing and retrying, every frame was
+  reported as analysed with nothing found, so tracked markers were declared
+  lost after `lostThreshold` frames, and the stall guard never ran. Those
+  frames are now acknowledged as skipped (#52).
+- The engine's own `engine:update` tick, `{ deltaTime, context }` with no
+  `ImageBitmap`, was posted to the worker and held the one-frame slot until
+  acknowledged, so camera frames arriving meanwhile were dropped. It is now
+  ignored (#54).
+
+### Development
+
+- Node 24 LTS (`.nvmrc` v24.21.0), whose npm 11 no longer rewrites the
+  lockfile against npm 10 or crashes on vitest's optional peers. `publish.yml`
+  keeps its explicit Node 24.x (#62).
+- eslint 10, vitest 5 with `@vitest/coverage-v8` 5, jsdom 29 and TypeScript 6
+  (with `rootDir` and `strict: false`, so `types/` is unchanged). `npm audit`
+  reports no vulnerabilities (#62).
+
 ## [0.3.0] - 2026-10-08
 
 No breaking API changes.
@@ -156,7 +206,8 @@ Tagged on GitHub, not published to npm.
 - Vite ESM library build.
 - `ARTOOLKIT_PLUGIN_VERSION` and `plugin.version`.
 
-[Unreleased]: https://github.com/AR-js-org/arjs-plugin-artoolkit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/AR-js-org/arjs-plugin-artoolkit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/AR-js-org/arjs-plugin-artoolkit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AR-js-org/arjs-plugin-artoolkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AR-js-org/arjs-plugin-artoolkit/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/AR-js-org/arjs-plugin-artoolkit/compare/0.1.2...v0.1.3

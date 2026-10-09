@@ -61,6 +61,7 @@ message-passing concerns belong in the worker.
 | worker → main | `loadMarkerResult`   | `{ ok, markerId, size, requestId, error }`                         |
 | worker → main | `trackBarcodeResult` | `{ ok, markerId, size, detectionMode, requestId, error }`          |
 | worker → main | `configureResult`    | `{ ok, config, requestId, error }`                                 |
+| worker → main | `camera`             | `{ projectionMatrix, width, height }`                              |
 | worker → main | `detectionResult`    | `{ frameId, detected, lost, skipped? }`                            |
 | worker → main | `initError`          | `{ message }`                                                      |
 | worker → main | `error`              | `{ message }`                                                      |
@@ -102,8 +103,9 @@ must be called only after at least one frame has reached the worker.
 
 `detectionResult` is sent exactly once per `processFrame` received, always —
 including when both `detected` and `lost` are empty, and for a frame the
-worker skips outright (no `ImageBitmap` on the payload, or the detector not
-yet constructed). A skipped frame carries `skipped: true`: the plugin releases
+worker skips outright (no `ImageBitmap` on the payload, the detector not yet
+constructed, or no ARToolKit state yet because initialisation is failing and
+backing off, #52). A skipped frame carries `skipped: true`: the plugin releases
 the in-flight slot but does not read its empty lists as every marker going
 missing, nor count it as a processed frame for the stall guard. This
 acknowledgement is load-bearing, not a courtesy:
@@ -115,8 +117,11 @@ when there was something to report; see the "Post-implementation note" in
 `docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md` for why
 that broke under real camera-rate load.
 
-At most one frame is ever in flight between the plugin and the worker.
-`_onEngineUpdate` drops — and closes the `ImageBitmap` of — any `engine:update`
+At most one frame is ever in flight between the plugin and the worker. Only a
+frame counts: `_onEngineUpdate` ignores an `engine:update` without an
+`ImageBitmap`, which is the engine's own tick `{ deltaTime, context }` sharing
+the event name, rather than posting it and holding the slot for nothing
+(#54). It drops — and closes the `ImageBitmap` of — any `engine:update`
 that arrives while the previous frame's `detectionResult`/`error` is still
 outstanding, rather than queueing it. `postMessage`'s per-worker queue is FIFO
 and unbounded, so with no backpressure a worker that falls behind the camera's
@@ -134,6 +139,18 @@ pose that is already stale by the time it is computed.
 | `ar:markerLost`    | `{ markerId, type, timestamp }`                                  |
 | `ar:workerReady`   | `{}`                                                             |
 | `ar:workerError`   | `{ message }`                                                    |
+| `ar:camera`        | `{ projectionMatrix, width, height, timestamp }`                 |
+
+`ar:camera` carries the camera projection matrix, a `Float32Array(16)`
+column-major, that artoolkit5-ts's `getCameraProjectionMatrix` computes from
+`camera_para.dat`. It is the projection that pairs with `matrix`. The worker
+sends `camera` before the `detectionResult` of the first frame that creates
+the ARToolKit state, since the projection does not exist before then. It sends
+it again after a successful `configure` that sets `nearPlane` or `farPlane`,
+which recompute it, so the detector reads it from the state on every call
+rather than caching it. Construction options are applied before the first
+`camera`. It is not a frame acknowledgement. A renderer enabled later reads
+the current values from `plugin.getProjectionMatrix()`.
 
 `vertex` is the detected square's four corners, `[[x, y], …]`, in the pixel
 coordinates of the frame that was submitted — not of however the video is
@@ -197,9 +214,10 @@ silently fell through to the sweep timer (#38). The worker still forwards
 `lost`, but the plugin does not need it.
 
 `_sweepMarkers` is a stall guard only: it reports every tracked marker lost
-when **no frame** has been acknowledged for `lostThreshold × frameDurationMs`
-(`_lastFrameAt`). It measures the pipeline, not the marker, so a slow but live
-pipeline never trips it.
+when **no frame** has been analysed for `lostThreshold × frameDurationMs`
+(`_lastFrameAt`). A frame acknowledged as `skipped` does not count as analysed,
+so frames that keep arriving but are all skipped trip it too. It measures the
+pipeline, not the marker, so a slow but live pipeline never trips it.
 
 ## Conventions
 

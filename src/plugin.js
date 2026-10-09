@@ -82,7 +82,7 @@ function usableDir(dir) {
  * @class
  * @param {Object} options - Configuration options
  * @param {boolean} [options.worker=true] - Enable worker-based detection
- * @param {number} [options.lostThreshold=5] - Consecutive frames the detector must report a marker missing before it is marked lost (see _applyLost); also scales the staleness-sweep timeout (see _sweepMarkers)
+ * @param {number} [options.lostThreshold=5] - Consecutive processed frames a tracked marker must be absent from before it is marked lost (see _applyMisses); skipped frames do not count. Times frameDurationMs, it is also how long the plugin may go without an analysed frame before the stall guard reports every tracked marker lost (see _sweepMarkers): frames acknowledged as skipped do not reset that timer, so markers can be reported lost while skipped frames keep arriving
  * @param {number} [options.frameDurationMs=200] - Expected milliseconds per processed frame. Only used for the stall guard: when no frame has been processed for `lostThreshold * frameDurationMs`, every tracked marker is reported lost (see _sweepMarkers)
  * @param {number} [options.sweepIntervalMs=100] - Interval for running the stall guard
  * @param {string} [options.cameraParametersUrl] - Camera calibration parameters URL
@@ -103,9 +103,10 @@ function usableDir(dir) {
  *
  * @fires ar:markerFound - When a marker is first detected
  * @fires ar:markerUpdated - When a tracked marker's pose updates
- * @fires ar:markerLost - When the detector reports a marker missing on lostThreshold consecutive frames
+ * @fires ar:markerLost - When a tracked marker has been absent from lostThreshold consecutive processed frames, or no frame has been analysed for lostThreshold × frameDurationMs (frames stopped, or all skipped)
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
+ * @fires ar:camera - With the camera projection, once the first frame reaches the detector and again when nearPlane or farPlane change
  *
  * @note Detection is browser-only (needs Worker and OffscreenCanvas); elsewhere the plugin still runs its lifecycle without detecting markers
  */
@@ -166,6 +167,10 @@ export class ArtoolkitPlugin {
 
     // Track worker readiness (used by examples to avoid UI race)
     this.workerReady = false;
+
+    // The camera projection from the worker's `camera` message; null until
+    // the first frame has created the detector state.
+    this._projectionMatrix = null;
 
     this.version = ARTOOLKIT_PLUGIN_VERSION;
   }
@@ -280,9 +285,13 @@ export class ArtoolkitPlugin {
    * @note At most one frame is ever in flight (see the backpressure paragraph above the method body)
    */
   _onEngineUpdate(frame) {
-    // frame is expected to be an object provided by the capture system, e.g.:
-    // { id: number, timestamp, imageBitmap?, width, height, sourceRef }
-    if (!frame) return;
+    // engine:update carries two shapes on one event name: FramePumpSystem's
+    // frames { id, imageBitmap, width, height, timestamp }, and the engine's
+    // own tick { deltaTime, context } on every animation frame. Only a frame
+    // has anything to analyse. Posting a tick took the in-flight slot until
+    // the worker acknowledged it as skipped, dropping camera frames
+    // meanwhile (#54).
+    if (!frame?.imageBitmap) return;
 
     // Backpressure. postMessage's queue is FIFO and unbounded: posting one
     // processFrame per engine:update with no regard for whether the worker
@@ -304,8 +313,8 @@ export class ArtoolkitPlugin {
       return;
     }
 
-    // If the frame contains an ImageBitmap (browser), transfer it to the worker for zero-copy processing.
-    if (this._worker && frame.imageBitmap) {
+    // Transfer the ImageBitmap to the worker for zero-copy processing.
+    if (this._worker) {
       try {
         // Browser: use transferable ImageBitmap
         // The browser worker will receive event.data.payload.imageBitmap
@@ -347,21 +356,7 @@ export class ArtoolkitPlugin {
     }
 
     // No worker to hand the bitmap to: nothing else will free it.
-    if (!this._worker) {
-      frame.imageBitmap?.close?.();
-      return;
-    }
-
-    // No ImageBitmap: send lighter payload as before (frameId)
-    try {
-      this._worker.postMessage({
-        type: "processFrame",
-        payload: { frameId: frame.id },
-      });
-      this._frameInFlight = true;
-    } catch (err) {
-      console.warn("Artoolkit worker postMessage failed", err);
-    }
+    frame.imageBitmap.close?.();
   }
 
   /**
@@ -459,6 +454,9 @@ export class ArtoolkitPlugin {
     const worker = this._worker;
     this._worker = null;
     this._frameInFlight = false;
+    // The next worker builds its own detector, possibly for another frame
+    // size: until it sends camera, there is no projection to give out.
+    this._projectionMatrix = null;
 
     try {
       worker.postMessage({ type: "dispose" });
@@ -499,7 +497,7 @@ export class ArtoolkitPlugin {
    * A marker not currently tracked emits `ar:markerFound`. One already
    * tracked emits `ar:markerUpdated` and has its `consecutiveMisses` counter
    * reset to 0 - a single good frame fully clears any misses accumulated by
-   * {@link _applyLost}, regardless of how close the marker was to crossing
+   * {@link _applyMisses}, regardless of how close the marker was to crossing
    * `lostThreshold`. This is what keeps a marker's identity continuous
    * across a brief miss streak: as long as the registry entry survives, a
    * re-detection is treated as the same marker, never a new one.
@@ -622,10 +620,14 @@ export class ArtoolkitPlugin {
    * - `ready`: Worker initialized, sets workerReady flag
    * - `detectionResult`: Clears the in-flight frame flag (see
    *   `_onEngineUpdate`) so the next frame may be sent, then applies
-   *   detections and losses via _applyDetections/_applyLost. The worker
+   *   detections and misses via _applyDetections/_applyMisses, unless the
+   *   frame is `skipped` (nothing was analysed). The worker
    *   acknowledges every `processFrame` this way, including empty results,
    *   specifically so this flag can never get stuck.
    * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
+   * - `camera`: The camera projection; stored for getProjectionMatrix() and
+   *   emitted as ar:camera. Not a frame acknowledgement: the in-flight flag
+   *   is left alone, since the frame still sends its own detectionResult.
    * - `error`: Worker error; also clears the in-flight frame flag, otherwise
    *   a failed frame would wedge frame submission permanently, then emits
    *   ar:workerError event
@@ -643,6 +645,20 @@ export class ArtoolkitPlugin {
       console.log("[Plugin] Worker ready");
       this.workerReady = true;
       this.core?.eventBus?.emit("ar:workerReady", {});
+    } else if (type === "camera") {
+      // Not a frame acknowledgement: the frame that produced it still sends
+      // its own detectionResult.
+      const projectionMatrix = Float32Array.from(
+        payload?.projectionMatrix ?? [],
+      );
+      if (projectionMatrix.length !== 16) return;
+      this._projectionMatrix = projectionMatrix;
+      this.core?.eventBus?.emit("ar:camera", {
+        projectionMatrix: projectionMatrix.slice(),
+        width: payload.width,
+        height: payload.height,
+        timestamp: Date.now(),
+      });
     } else if (type === "detectionResult") {
       this._frameInFlight = false;
       // A frame acknowledged without being analysed (no ImageBitmap, or no
@@ -722,7 +738,7 @@ export class ArtoolkitPlugin {
    * @returns {Object|null} State with `lastSeen`, `visible`,
    *   `consecutiveMisses`, `id` and `type`, or null if the marker is not
    *   tracked (never seen, or already past `lostThreshold` misses).
-   *   `consecutiveMisses` is the debounce count `_applyLost` compares
+   *   `consecutiveMisses` is the debounce count `_applyMisses` compares
    *   against `lostThreshold`; `visible` reflects only the most recently
    *   processed frame, true when detected, false during a miss streak that
    *   hasn't yet crossed the threshold - unlike `consecutiveMisses`, it does
@@ -734,6 +750,18 @@ export class ArtoolkitPlugin {
    */
   getMarkerState(markerId, type = "pattern") {
     return this._markers.get(this._markerKey(markerId, type)) || null;
+  }
+
+  /**
+   * The camera projection matrix ARToolKit computed from the camera
+   * parameters, as last published on `ar:camera`. It pairs with the marker
+   * events' `matrix`: a renderer that missed the event reads it here.
+   *
+   * @returns {Float32Array|null} A fresh copy of the sixteen values, column-major,
+   *   or null before the first frame has reached the detector
+   */
+  getProjectionMatrix() {
+    return this._projectionMatrix ? this._projectionMatrix.slice() : null;
   }
 
   /**

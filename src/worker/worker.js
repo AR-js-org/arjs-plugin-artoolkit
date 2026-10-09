@@ -35,6 +35,28 @@ let offscreenCtx = null;
 let canvasW = 0;
 let canvasH = 0;
 let hasAnnouncedReady = false;
+/**
+ * The frame size this detector's camera projection was sent with, or null
+ * before it has been sent. The projection exists only once the first frame
+ * has created the ARToolKit state; after that it changes only when
+ * `configure` sets `nearPlane` or `farPlane`, which sends it again.
+ */
+let cameraSent = null;
+
+/** Posts the detector's current camera projection for a `w` x `h` frame. */
+function sendCamera(w, h) {
+  const projectionMatrix = detector?.getProjectionMatrix();
+  if (!projectionMatrix) return;
+  cameraSent = { width: w, height: h };
+  sendMessage({
+    type: "camera",
+    payload: {
+      projectionMatrix: Array.from(projectionMatrix),
+      width: w,
+      height: h,
+    },
+  });
+}
 
 /**
  * Post a message to the main thread.
@@ -72,6 +94,7 @@ self.addEventListener("message", async (ev) => {
       // Constructing a second detector here would discard the ARToolKit state
       // and every pattern loaded so far, so init is idempotent.
       if (!detector) {
+        cameraSent = null;
         detector = createDetector({
           cameraParametersUrl: payload?.cameraParametersUrl ?? undefined,
           wasmUrl: payload?.wasmUrl ?? undefined,
@@ -166,6 +189,16 @@ self.addEventListener("message", async (ev) => {
           type: resultType,
           payload: { ok: true, ...result, requestId },
         });
+        // nearPlane and farPlane recompute the projection. Before the first
+        // frame there is nothing to resend: the first camera already has them.
+        const opts = payload?.opts ?? {};
+        if (
+          type === "configure" &&
+          cameraSent &&
+          ("nearPlane" in opts || "farPlane" in opts)
+        ) {
+          sendCamera(cameraSent.width, cameraSent.height);
+        }
       } catch (err) {
         sendMessage({
           type: resultType,
@@ -196,14 +229,31 @@ self.addEventListener("message", async (ev) => {
 
       // ensureReady and ensureCanvas can both throw; the bitmap is a
       // full-resolution buffer and must be released either way.
+      let ready = false;
       try {
-        await detector.ensureReady(w, h);
-        ensureCanvas(w, h);
+        ready = await detector.ensureReady(w, h);
+        if (ready) {
+          // Once, before this frame's detectionResult, so a renderer has the
+          // projection before the first pose it applies.
+          if (!cameraSent) sendCamera(w, h);
+          ensureCanvas(w, h);
 
-        offscreenCtx.clearRect(0, 0, w, h);
-        offscreenCtx.drawImage(imageBitmap, 0, 0, w, h);
+          offscreenCtx.clearRect(0, 0, w, h);
+          offscreenCtx.drawImage(imageBitmap, 0, 0, w, h);
+        }
       } finally {
         imageBitmap.close?.();
+      }
+
+      // No ARToolKit state yet (initialisation failing and backing off):
+      // nothing can be analysed, and empty lists would read as every tracked
+      // marker missing this frame (#52). Acknowledge it as skipped.
+      if (!ready) {
+        sendMessage({
+          type: "detectionResult",
+          payload: { frameId, detected: [], lost: [], skipped: true },
+        });
+        return;
       }
 
       const pixels = offscreenCtx.getImageData(0, 0, w, h).data;
@@ -222,6 +272,7 @@ self.addEventListener("message", async (ev) => {
     if (type === "dispose") {
       detector?.dispose();
       detector = null;
+      cameraSent = null;
       return;
     }
   } catch (err) {
