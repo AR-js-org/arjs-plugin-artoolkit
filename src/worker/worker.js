@@ -36,10 +36,27 @@ let canvasW = 0;
 let canvasH = 0;
 let hasAnnouncedReady = false;
 /**
- * Whether this detector's camera projection has been sent. It exists only once
- * the first frame has created the ARToolKit state, and it never changes after.
+ * The frame size this detector's camera projection was sent with, or null
+ * before it has been sent. The projection exists only once the first frame
+ * has created the ARToolKit state; after that it changes only when
+ * `configure` sets `nearPlane` or `farPlane`, which sends it again.
  */
-let cameraSent = false;
+let cameraSent = null;
+
+/** Posts the detector's current camera projection for a `w` x `h` frame. */
+function sendCamera(w, h) {
+  const projectionMatrix = detector?.getProjectionMatrix();
+  if (!projectionMatrix) return;
+  cameraSent = { width: w, height: h };
+  sendMessage({
+    type: "camera",
+    payload: {
+      projectionMatrix: Array.from(projectionMatrix),
+      width: w,
+      height: h,
+    },
+  });
+}
 
 /**
  * Post a message to the main thread.
@@ -77,7 +94,7 @@ self.addEventListener("message", async (ev) => {
       // Constructing a second detector here would discard the ARToolKit state
       // and every pattern loaded so far, so init is idempotent.
       if (!detector) {
-        cameraSent = false;
+        cameraSent = null;
         detector = createDetector({
           cameraParametersUrl: payload?.cameraParametersUrl ?? undefined,
           wasmUrl: payload?.wasmUrl ?? undefined,
@@ -172,6 +189,16 @@ self.addEventListener("message", async (ev) => {
           type: resultType,
           payload: { ok: true, ...result, requestId },
         });
+        // nearPlane and farPlane recompute the projection. Before the first
+        // frame there is nothing to resend: the first camera already has them.
+        const opts = payload?.opts ?? {};
+        if (
+          type === "configure" &&
+          cameraSent &&
+          ("nearPlane" in opts || "farPlane" in opts)
+        ) {
+          sendCamera(cameraSent.width, cameraSent.height);
+        }
       } catch (err) {
         sendMessage({
           type: resultType,
@@ -206,18 +233,7 @@ self.addEventListener("message", async (ev) => {
         const ready = await detector.ensureReady(w, h);
         // Once, before this frame's detectionResult, so a renderer has the
         // projection before the first pose it applies.
-        const projectionMatrix = ready && detector.getProjectionMatrix();
-        if (projectionMatrix && !cameraSent) {
-          cameraSent = true;
-          sendMessage({
-            type: "camera",
-            payload: {
-              projectionMatrix: Array.from(projectionMatrix),
-              width: w,
-              height: h,
-            },
-          });
-        }
+        if (ready && !cameraSent) sendCamera(w, h);
         ensureCanvas(w, h);
 
         offscreenCtx.clearRect(0, 0, w, h);
@@ -242,7 +258,7 @@ self.addEventListener("message", async (ev) => {
     if (type === "dispose") {
       detector?.dispose();
       detector = null;
-      cameraSent = false;
+      cameraSent = null;
       return;
     }
   } catch (err) {

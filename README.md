@@ -362,18 +362,19 @@ The plugin emits the following events on your engine’s event bus:
 | `ar:camera`        | `{ projectionMatrix, width, height, timestamp }`                 |
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed — ready for
-WebGL and for `THREE.Matrix4.fromArray()` with no conversion.
-
-`ar:camera` gives the camera projection to render those poses with, also a
-`Float32Array(16)`, computed by ARToolKit from your `camera_para.dat`. It fires
-once, when the first frame reaches the detector. Set it as your 3D camera's
-projection matrix; `arjs-plugin-threejs` does this on `ar:camera`. If your
-renderer starts after that, call `artoolkit.getProjectionMatrix()`, which
-returns the same values or `null` before the first frame. `type` is
+WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
 `"pattern"` or `"barcode"`. A marker's real identity is the pair
 `type:markerId`, not `markerId` alone — pattern and barcode markers keep
 independent ID registries, so a barcode marker and a pattern marker can both
 report `markerId: 0` while being two different markers.
+
+`ar:camera` gives the camera projection to render those poses with, also a
+`Float32Array(16)`, computed by ARToolKit from your `camera_para.dat`. It fires
+when the first frame reaches the detector, and again whenever `nearPlane` or
+`farPlane` is configured, since those recompute it. Set it as your 3D camera's
+projection matrix; `arjs-plugin-threejs` does this on `ar:camera`. If your
+renderer starts later, call `artoolkit.getProjectionMatrix()`, which returns
+the current values, or `null` before the first frame.
 
 `vertex` is the detected square's four corners as `[[x, y], …]`, in the pixel
 coordinates of the **frame you submitted** — not of however the video is

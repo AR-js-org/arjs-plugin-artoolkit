@@ -213,6 +213,30 @@ describe("worker message protocol", () => {
     });
   });
 
+  it("sends camera again after configure changes nearPlane or farPlane", async () => {
+    await send("dispose");
+    await send("init", {});
+    await send("processFrame", {
+      frameId: 1,
+      imageBitmap: { close: vi.fn(), width: 640, height: 480 },
+      width: 640,
+      height: 480,
+    });
+    posted.length = 0;
+    detector.configure.mockResolvedValue({ farPlane: 5000 });
+
+    await send("configure", { opts: { farPlane: 5000 }, requestId: 7 });
+    expect(posted.filter((m) => m.type === "camera")).toHaveLength(1);
+    expect(posted.find((m) => m.type === "camera")!.payload).toMatchObject({
+      width: 640,
+      height: 480,
+    });
+
+    posted.length = 0;
+    await send("configure", { opts: { threshold: 90 }, requestId: 8 });
+    expect(posted.some((m) => m.type === "camera")).toBe(false);
+  });
+
   it("a skipped frame sends no camera", async () => {
     await send("dispose");
     await send("init", {});

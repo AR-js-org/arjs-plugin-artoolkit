@@ -140,10 +140,13 @@ pose that is already stale by the time it is computed.
 `ar:camera` carries the camera projection matrix, a `Float32Array(16)`
 column-major, that artoolkit5-ts's `getCameraProjectionMatrix` computes from
 `camera_para.dat`. It is the projection that pairs with `matrix`. The worker
-sends `camera` once per detector, before the `detectionResult` of the first
-frame that creates the ARToolKit state: the projection does not exist before
-then and never changes after. It is not a frame acknowledgement. A renderer
-enabled later reads the same values from `plugin.getProjectionMatrix()`.
+sends `camera` before the `detectionResult` of the first frame that creates
+the ARToolKit state, since the projection does not exist before then. It sends
+it again after a successful `configure` that sets `nearPlane` or `farPlane`,
+which recompute it, so the detector reads it from the state on every call
+rather than caching it. Construction options are applied before the first
+`camera`. It is not a frame acknowledgement. A renderer enabled later reads
+the current values from `plugin.getProjectionMatrix()`.
 
 `vertex` is the detected square's four corners, `[[x, y], …]`, in the pixel
 coordinates of the frame that was submitted — not of however the video is

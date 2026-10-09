@@ -106,6 +106,7 @@ function usableDir(dir) {
  * @fires ar:markerLost - When the detector reports a marker missing on lostThreshold consecutive frames
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
+ * @fires ar:camera - With the camera projection, once the first frame reaches the detector and again when nearPlane or farPlane change
  *
  * @note Detection is browser-only (needs Worker and OffscreenCanvas); elsewhere the plugin still runs its lifecycle without detecting markers
  */
@@ -750,6 +751,10 @@ export class ArtoolkitPlugin {
    * const state = plugin.getMarkerState(42, 'pattern');
    * if (state && state.visible) console.log('last seen', state.lastSeen);
    */
+  getMarkerState(markerId, type = "pattern") {
+    return this._markers.get(this._markerKey(markerId, type)) || null;
+  }
+
   /**
    * The camera projection matrix ARToolKit computed from the camera
    * parameters, as last published on `ar:camera`. It pairs with the marker
@@ -760,10 +765,6 @@ export class ArtoolkitPlugin {
    */
   getProjectionMatrix() {
     return this._projectionMatrix ? this._projectionMatrix.slice() : null;
-  }
-
-  getMarkerState(markerId, type = "pattern") {
-    return this._markers.get(this._markerKey(markerId, type)) || null;
   }
 
   /**
