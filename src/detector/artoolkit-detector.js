@@ -12,6 +12,7 @@ import {
   configureDetector,
   createARToolKitState,
   disposeARToolKitState,
+  getCameraProjectionMatrix,
   loadPatternMarker,
   processFrame,
   trackBarcodeMarker,
@@ -577,6 +578,18 @@ export function createDetector(options = {}) {
   }
 
   /**
+   * The camera projection matrix artoolkit5-ts computed from the camera
+   * parameters, to pair with the detections' `matrixGL`. Read from the state
+   * on each call: configuring `nearPlane` or `farPlane` recomputes it, both at
+   * construction and later.
+   *
+   * @returns {Float64Array|null} Sixteen values, or null before the state exists
+   */
+  function getProjectionMatrix() {
+    return state ? getCameraProjectionMatrix(state) : null;
+  }
+
+  /**
    * @typedef {Object} Detector
    * @property {(width: number, height: number) => Promise<boolean>} ensureReady
    * @property {(patternUrl: string, size?: number) => Promise<number>} loadPattern
@@ -584,6 +597,7 @@ export function createDetector(options = {}) {
    * @property {(barcodeId: number, size?: number) => Promise<{markerId: number, size: number, detectionMode: string}>} trackBarcode
    * @property {(pixels: Uint8ClampedArray) => {detected: Array<Object>, lost: Array<Object>}} detect
    * @property {() => void} dispose
+   * @property {() => (Float64Array|null)} getProjectionMatrix
    */
   return {
     ensureReady,
@@ -592,5 +606,6 @@ export function createDetector(options = {}) {
     trackBarcode,
     detect,
     dispose,
+    getProjectionMatrix,
   };
 }

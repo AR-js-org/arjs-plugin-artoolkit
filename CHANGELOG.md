@@ -10,6 +10,16 @@ sections cover each breaking release in more detail.
 
 ## [Unreleased]
 
+### Added
+
+- `ar:camera` `{ projectionMatrix, width, height, timestamp }`: the camera
+  projection matrix ARToolKit computes from `camera_para.dat`, which pairs with
+  the marker events' `matrix`. It is emitted when the first frame creates the
+  detector state, and again when `nearPlane` or `farPlane` is configured.
+  `plugin.getProjectionMatrix()` returns the current values to a renderer that
+  starts later. Without it, a 3D renderer had no way to overlay
+  content on the marker (#57).
+
 ### Fixed
 
 - Vite dev servers no longer warn `Failed to load source map` for
