@@ -464,6 +464,9 @@ export class ArtoolkitPlugin {
     const worker = this._worker;
     this._worker = null;
     this._frameInFlight = false;
+    // The next worker builds its own detector, possibly for another frame
+    // size: until it sends camera, there is no projection to give out.
+    this._projectionMatrix = null;
 
     try {
       worker.postMessage({ type: "dispose" });
@@ -631,6 +634,9 @@ export class ArtoolkitPlugin {
    *   acknowledges every `processFrame` this way, including empty results,
    *   specifically so this flag can never get stuck.
    * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
+   * - `camera`: The camera projection; stored for getProjectionMatrix() and
+   *   emitted as ar:camera. Not a frame acknowledgement: the in-flight flag
+   *   is left alone, since the frame still sends its own detectionResult.
    * - `error`: Worker error; also clears the in-flight frame flag, otherwise
    *   a failed frame would wedge frame submission permanently, then emits
    *   ar:workerError event

@@ -234,3 +234,57 @@ describe("ArtoolkitPlugin frame backpressure", () => {
     expect(secondBitmap.close).not.toHaveBeenCalled();
   });
 });
+
+describe("ar:camera and the frame slot", () => {
+  let core: { eventBus: ReturnType<typeof createEventBus> };
+
+  beforeEach(() => {
+    core = { eventBus: createEventBus() };
+  });
+
+  const camera = {
+    data: {
+      type: "camera",
+      payload: {
+        projectionMatrix: Array.from({ length: 16 }, (_, i) => i),
+        width: 640,
+        height: 480,
+      },
+    },
+  };
+
+  it("a camera message does not release the frame in flight", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: true });
+    await plugin.init(core);
+    // @ts-ignore private field, stubbed as the tests above do
+    plugin._worker = { postMessage: vi.fn() };
+    // @ts-ignore
+    plugin._frameInFlight = true;
+
+    // @ts-ignore call private
+    plugin._onWorkerMessage(camera);
+
+    // @ts-ignore
+    expect(plugin._frameInFlight).toBe(true);
+  });
+
+  it("getProjectionMatrix is null again once the worker stops", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: true });
+    await plugin.init(core);
+    const worker = {
+      postMessage: vi.fn(),
+      removeEventListener: vi.fn(),
+      terminate: vi.fn(),
+    };
+    // @ts-ignore private field
+    plugin._worker = worker;
+    // @ts-ignore call private
+    plugin._onWorkerMessage(camera);
+    expect(plugin.getProjectionMatrix()).not.toBeNull();
+
+    // @ts-ignore call private
+    plugin._stopWorker();
+
+    expect(plugin.getProjectionMatrix()).toBeNull();
+  });
+});
