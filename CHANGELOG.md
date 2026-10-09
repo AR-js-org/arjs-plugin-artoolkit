@@ -27,6 +27,9 @@ sections cover each breaking release in more detail.
 - The README shows importing the binary's URL with a bundler
   (`@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm?url`, which needs 0.4.1)
   and recommends `@ar-js-org/artoolkit5-wasm` as a direct dependency (#59).
+- The package is built with vite 8 (Rolldown). Exports, file layout and the
+  worker's relative URL are unchanged; the bundle no longer carries the JSDoc
+  comments, so the entry drops from 23 to 9 kB (#62).
 
 ### Fixed
 
