@@ -16,7 +16,7 @@ Lightweight WebWorker ARToolKit plugin for AR.js that detects square markers usi
 
 - [Features](#features-)
 - [Version](#version-)
-- [Changelog](CHANGELOG.md)
+- [Changelog](https://github.com/AR-js-org/arjs-plugin-artoolkit/blob/main/CHANGELOG.md)
 - [Upgrading to 0.3.0](#upgrading-to-030-)
 - [Upgrading to 0.2.0](#upgrading-to-020-)
 - [Installation](#installation-)
@@ -65,7 +65,7 @@ console.log("Instance version:", plugin.version);
 If the build-time define is missing (for example when using raw source or some test runners), the version falls back to `'unknown'`.
 
 What changed in each release, including every breaking change, is in
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](https://github.com/AR-js-org/arjs-plugin-artoolkit/blob/main/CHANGELOG.md).
 
 <a id="upgrading-to-030-"></a>
 
