@@ -24,6 +24,7 @@ const detector = vi.hoisted(() => ({
   trackBarcode: vi.fn(),
   detect: vi.fn(),
   dispose: vi.fn(),
+  getProjectionMatrix: vi.fn(),
 }));
 /** The options the worker built its detector with, kept across tests. */
 const created = vi.hoisted(() => ({ opts: null as any }));
@@ -71,6 +72,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   detector.ensureReady.mockResolvedValue(true);
   detector.detect.mockReturnValue({ detected: [], lost: [] });
+  detector.getProjectionMatrix.mockReturnValue(
+    Float64Array.from({ length: 16 }, (_, i) => i + 1),
+  );
 });
 
 async function send(type: string, payload?: Record<string, unknown>) {
@@ -179,6 +183,68 @@ describe("worker message protocol", () => {
       type: "detectionResult",
       payload: { frameId: 4, detected: [], lost: [], skipped: true },
     });
+  });
+
+  it("sends camera once, after the first frame readies the detector", async () => {
+    // A fresh detector: earlier tests may already have sent its camera.
+    await send("dispose");
+    await send("init", {});
+    posted.length = 0;
+
+    const frame = (frameId: number) => ({
+      frameId,
+      imageBitmap: { close: vi.fn(), width: 640, height: 480 },
+      width: 640,
+      height: 480,
+    });
+    await send("processFrame", frame(1));
+    await send("processFrame", frame(2));
+
+    const types = posted.map((m) => m.type);
+    const cameras = posted.filter((m) => m.type === "camera");
+    expect(cameras).toHaveLength(1);
+    expect(types.indexOf("camera")).toBeLessThan(
+      types.indexOf("detectionResult"),
+    );
+    expect(cameras[0].payload).toEqual({
+      projectionMatrix: Array.from({ length: 16 }, (_, i) => i + 1),
+      width: 640,
+      height: 480,
+    });
+  });
+
+  it("sends camera again after configure changes nearPlane or farPlane", async () => {
+    await send("dispose");
+    await send("init", {});
+    await send("processFrame", {
+      frameId: 1,
+      imageBitmap: { close: vi.fn(), width: 640, height: 480 },
+      width: 640,
+      height: 480,
+    });
+    posted.length = 0;
+    detector.configure.mockResolvedValue({ farPlane: 5000 });
+
+    await send("configure", { opts: { farPlane: 5000 }, requestId: 7 });
+    expect(posted.filter((m) => m.type === "camera")).toHaveLength(1);
+    expect(posted.find((m) => m.type === "camera")!.payload).toMatchObject({
+      width: 640,
+      height: 480,
+    });
+
+    posted.length = 0;
+    await send("configure", { opts: { threshold: 90 }, requestId: 8 });
+    expect(posted.some((m) => m.type === "camera")).toBe(false);
+  });
+
+  it("a skipped frame sends no camera", async () => {
+    await send("dispose");
+    await send("init", {});
+    posted.length = 0;
+
+    await send("processFrame", { frameId: 3 });
+
+    expect(posted.some((m) => m.type === "camera")).toBe(false);
   });
 
   it("closes the bitmap and posts error when readiness throws (#28)", async () => {

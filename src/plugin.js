@@ -106,6 +106,7 @@ function usableDir(dir) {
  * @fires ar:markerLost - When the detector reports a marker missing on lostThreshold consecutive frames
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
+ * @fires ar:camera - With the camera projection, once the first frame reaches the detector and again when nearPlane or farPlane change
  *
  * @note Detection is browser-only (needs Worker and OffscreenCanvas); elsewhere the plugin still runs its lifecycle without detecting markers
  */
@@ -166,6 +167,10 @@ export class ArtoolkitPlugin {
 
     // Track worker readiness (used by examples to avoid UI race)
     this.workerReady = false;
+
+    // The camera projection from the worker's `camera` message; null until
+    // the first frame has created the detector state.
+    this._projectionMatrix = null;
 
     this.version = ARTOOLKIT_PLUGIN_VERSION;
   }
@@ -459,6 +464,9 @@ export class ArtoolkitPlugin {
     const worker = this._worker;
     this._worker = null;
     this._frameInFlight = false;
+    // The next worker builds its own detector, possibly for another frame
+    // size: until it sends camera, there is no projection to give out.
+    this._projectionMatrix = null;
 
     try {
       worker.postMessage({ type: "dispose" });
@@ -626,6 +634,9 @@ export class ArtoolkitPlugin {
    *   acknowledges every `processFrame` this way, including empty results,
    *   specifically so this flag can never get stuck.
    * - `loadMarkerResult`: Response to loadMarker request, resolves/rejects promise
+   * - `camera`: The camera projection; stored for getProjectionMatrix() and
+   *   emitted as ar:camera. Not a frame acknowledgement: the in-flight flag
+   *   is left alone, since the frame still sends its own detectionResult.
    * - `error`: Worker error; also clears the in-flight frame flag, otherwise
    *   a failed frame would wedge frame submission permanently, then emits
    *   ar:workerError event
@@ -643,6 +654,20 @@ export class ArtoolkitPlugin {
       console.log("[Plugin] Worker ready");
       this.workerReady = true;
       this.core?.eventBus?.emit("ar:workerReady", {});
+    } else if (type === "camera") {
+      // Not a frame acknowledgement: the frame that produced it still sends
+      // its own detectionResult.
+      const projectionMatrix = Float32Array.from(
+        payload?.projectionMatrix ?? [],
+      );
+      if (projectionMatrix.length !== 16) return;
+      this._projectionMatrix = projectionMatrix;
+      this.core?.eventBus?.emit("ar:camera", {
+        projectionMatrix: projectionMatrix.slice(),
+        width: payload.width,
+        height: payload.height,
+        timestamp: Date.now(),
+      });
     } else if (type === "detectionResult") {
       this._frameInFlight = false;
       // A frame acknowledged without being analysed (no ImageBitmap, or no
@@ -734,6 +759,18 @@ export class ArtoolkitPlugin {
    */
   getMarkerState(markerId, type = "pattern") {
     return this._markers.get(this._markerKey(markerId, type)) || null;
+  }
+
+  /**
+   * The camera projection matrix ARToolKit computed from the camera
+   * parameters, as last published on `ar:camera`. It pairs with the marker
+   * events' `matrix`: a renderer that missed the event reads it here.
+   *
+   * @returns {Float32Array|null} A fresh copy of the sixteen values, column-major,
+   *   or null before the first frame has reached the detector
+   */
+  getProjectionMatrix() {
+    return this._projectionMatrix ? this._projectionMatrix.slice() : null;
   }
 
   /**

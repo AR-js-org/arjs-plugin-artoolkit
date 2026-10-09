@@ -317,3 +317,47 @@ describe("event payload contract", () => {
     await plugin.disable();
   });
 });
+
+describe("ar:camera", () => {
+  let core: { eventBus: ReturnType<typeof createEventBus> };
+
+  beforeEach(() => {
+    core = { eventBus: createEventBus() };
+  });
+
+  const projection = Array.from({ length: 16 }, (_, i) => i / 2);
+
+  it("emits ar:camera with a Float32Array and remembers it", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    await plugin.enable();
+    const camera = vi.fn();
+    core.eventBus.on("ar:camera", camera);
+
+    // @ts-ignore
+    plugin._onWorkerMessage({
+      data: {
+        type: "camera",
+        payload: { projectionMatrix: projection, width: 640, height: 480 },
+      },
+    });
+
+    expect(camera).toHaveBeenCalledTimes(1);
+    const payload = camera.mock.calls[0][0];
+    expect(payload.projectionMatrix).toBeInstanceOf(Float32Array);
+    expect(Array.from(payload.projectionMatrix)).toEqual(projection);
+    expect(payload.width).toBe(640);
+    expect(payload.height).toBe(480);
+    expect(typeof payload.timestamp).toBe("number");
+
+    const remembered = plugin.getProjectionMatrix();
+    expect(Array.from(remembered!)).toEqual(projection);
+    expect(remembered).not.toBe(payload.projectionMatrix);
+  });
+
+  it("getProjectionMatrix is null before any camera message", async () => {
+    const plugin = new ArtoolkitPlugin({ worker: false });
+    await plugin.init(core);
+    expect(plugin.getProjectionMatrix()).toBeNull();
+  });
+});
