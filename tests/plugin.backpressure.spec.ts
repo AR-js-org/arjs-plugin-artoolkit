@@ -144,7 +144,7 @@ describe("ArtoolkitPlugin frame backpressure", () => {
     expect(secondBitmap.close).not.toHaveBeenCalled();
   });
 
-  it("still posts a frame with no ImageBitmap when nothing is in flight (pre-existing path, unchanged)", async () => {
+  it("ignores an engine:update without an ImageBitmap: the engine tick is not a frame (#54)", async () => {
     const plugin = new ArtoolkitPlugin({ worker: true });
     await plugin.init(core);
 
@@ -152,18 +152,17 @@ describe("ArtoolkitPlugin frame backpressure", () => {
     // @ts-ignore
     plugin._worker = { postMessage };
 
-    // No imageBitmap at all - the "lighter payload" fallback path.
+    // Engine.update() emits { deltaTime, context } on the same event name
+    // as FramePumpSystem's frames.
     // @ts-ignore call private
-    plugin._onEngineUpdate({ id: 1, width: 100, height: 50 });
+    plugin._onEngineUpdate({ deltaTime: 16, context: {} });
 
-    expect(postMessage).toHaveBeenCalledTimes(1);
-    const arg = postMessage.mock.calls[0][0];
-    expect(arg.type).toBe("processFrame");
-    // Unchanged pre-existing shape: no width/height on this fallback payload.
-    expect(arg.payload).toEqual({ frameId: 1 });
+    expect(postMessage).not.toHaveBeenCalled();
+    // @ts-ignore
+    expect(plugin._frameInFlight).toBe(false);
   });
 
-  it("gates a no-ImageBitmap frame the same as any other while one is in flight", async () => {
+  it("an engine tick does not hold back the next camera frame (#54)", async () => {
     const plugin = new ArtoolkitPlugin({ worker: true });
     await plugin.init(core);
 
@@ -171,23 +170,20 @@ describe("ArtoolkitPlugin frame backpressure", () => {
     // @ts-ignore
     plugin._worker = { postMessage };
 
-    // First frame has no bitmap, but still counts as "in flight" - the
-    // worker acknowledges it too (see src/worker/worker.js's early return).
     // @ts-ignore
-    plugin._onEngineUpdate({ id: 1, width: 100, height: 50 });
-    expect(postMessage).toHaveBeenCalledTimes(1);
-
-    const secondBitmap = fakeBitmap();
+    plugin._onEngineUpdate({ deltaTime: 16, context: {} });
+    const bitmap = fakeBitmap();
     // @ts-ignore
     plugin._onEngineUpdate({
       id: 2,
-      imageBitmap: secondBitmap,
+      imageBitmap: bitmap,
       width: 100,
       height: 50,
     });
 
     expect(postMessage).toHaveBeenCalledTimes(1);
-    expect(secondBitmap.close).toHaveBeenCalledTimes(1);
+    expect(postMessage.mock.calls[0][0].payload.frameId).toBe(2);
+    expect(bitmap.close).not.toHaveBeenCalled();
   });
 
   it("resets the in-flight flag in _stopWorker, so a restarted worker is not born blocked", async () => {

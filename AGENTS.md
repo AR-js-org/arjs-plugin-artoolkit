@@ -117,8 +117,11 @@ when there was something to report; see the "Post-implementation note" in
 `docs/superpowers/specs/2026-09-17-artoolkit5-ts-migration-design.md` for why
 that broke under real camera-rate load.
 
-At most one frame is ever in flight between the plugin and the worker.
-`_onEngineUpdate` drops — and closes the `ImageBitmap` of — any `engine:update`
+At most one frame is ever in flight between the plugin and the worker. Only a
+frame counts: `_onEngineUpdate` ignores an `engine:update` without an
+`ImageBitmap`, which is the engine's own tick `{ deltaTime, context }` sharing
+the event name, rather than posting it and holding the slot for nothing
+(#54). It drops — and closes the `ImageBitmap` of — any `engine:update`
 that arrives while the previous frame's `detectionResult`/`error` is still
 outstanding, rather than queueing it. `postMessage`'s per-worker queue is FIFO
 and unbounded, so with no backpressure a worker that falls behind the camera's

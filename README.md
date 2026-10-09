@@ -493,7 +493,9 @@ plugin drops it — closing its `ImageBitmap` rather than transferring it — an
 waits for the worker to finish the one it already has. This is deliberate
 backpressure, not a bug: it keeps a slow detector from building an unbounded
 backlog (which would otherwise starve `loadMarker()` behind queued frames).
-Emit frames as often as you like; the plugin decides how many it can use.
+Emit frames as often as you like; the plugin decides how many it can use. An
+`engine:update` without an `imageBitmap`, such as the engine's own
+`{ deltaTime, context }` tick, is ignored.
 
 <a id="loading-a-pattern-marker-"></a>
 

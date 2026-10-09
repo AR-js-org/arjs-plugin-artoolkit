@@ -285,9 +285,13 @@ export class ArtoolkitPlugin {
    * @note At most one frame is ever in flight (see the backpressure paragraph above the method body)
    */
   _onEngineUpdate(frame) {
-    // frame is expected to be an object provided by the capture system, e.g.:
-    // { id: number, timestamp, imageBitmap?, width, height, sourceRef }
-    if (!frame) return;
+    // engine:update carries two shapes on one event name: FramePumpSystem's
+    // frames { id, imageBitmap, width, height, timestamp }, and the engine's
+    // own tick { deltaTime, context } on every animation frame. Only a frame
+    // has anything to analyse. Posting a tick took the in-flight slot until
+    // the worker acknowledged it as skipped, dropping camera frames
+    // meanwhile (#54).
+    if (!frame?.imageBitmap) return;
 
     // Backpressure. postMessage's queue is FIFO and unbounded: posting one
     // processFrame per engine:update with no regard for whether the worker
@@ -309,8 +313,8 @@ export class ArtoolkitPlugin {
       return;
     }
 
-    // If the frame contains an ImageBitmap (browser), transfer it to the worker for zero-copy processing.
-    if (this._worker && frame.imageBitmap) {
+    // Transfer the ImageBitmap to the worker for zero-copy processing.
+    if (this._worker) {
       try {
         // Browser: use transferable ImageBitmap
         // The browser worker will receive event.data.payload.imageBitmap
@@ -352,21 +356,7 @@ export class ArtoolkitPlugin {
     }
 
     // No worker to hand the bitmap to: nothing else will free it.
-    if (!this._worker) {
-      frame.imageBitmap?.close?.();
-      return;
-    }
-
-    // No ImageBitmap: send lighter payload as before (frameId)
-    try {
-      this._worker.postMessage({
-        type: "processFrame",
-        payload: { frameId: frame.id },
-      });
-      this._frameInFlight = true;
-    } catch (err) {
-      console.warn("Artoolkit worker postMessage failed", err);
-    }
+    frame.imageBitmap.close?.();
   }
 
   /**
