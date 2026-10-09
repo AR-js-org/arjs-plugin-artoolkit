@@ -20,6 +20,14 @@ sections cover each breaking release in more detail.
   starts later. Without it, a 3D renderer had no way to overlay
   content on the marker (#57).
 
+### Fixed
+
+- Vite dev servers no longer warn `Failed to load source map` for
+  `dist/arjs-plugin-artoolkit.es.js` and the worker. The published files ended
+  in a `sourceMappingURL` comment pointing at maps the package does not ship
+  (#12); they are now built with `sourcemap: "hidden"`. The maps are still in
+  the release's `dist.zip` (#55).
+
 ## [0.3.0] - 2026-10-08
 
 No breaking API changes.
