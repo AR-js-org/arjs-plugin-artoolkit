@@ -214,9 +214,10 @@ silently fell through to the sweep timer (#38). The worker still forwards
 `lost`, but the plugin does not need it.
 
 `_sweepMarkers` is a stall guard only: it reports every tracked marker lost
-when **no frame** has been acknowledged for `lostThreshold × frameDurationMs`
-(`_lastFrameAt`). It measures the pipeline, not the marker, so a slow but live
-pipeline never trips it.
+when **no frame** has been analysed for `lostThreshold × frameDurationMs`
+(`_lastFrameAt`). A frame acknowledged as `skipped` does not count as analysed,
+so frames that keep arriving but are all skipped trip it too. It measures the
+pipeline, not the marker, so a slow but live pipeline never trips it.
 
 ## Conventions
 

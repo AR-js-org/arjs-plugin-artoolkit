@@ -82,7 +82,7 @@ function usableDir(dir) {
  * @class
  * @param {Object} options - Configuration options
  * @param {boolean} [options.worker=true] - Enable worker-based detection
- * @param {number} [options.lostThreshold=5] - Consecutive processed frames a tracked marker must be absent from before it is marked lost (see _applyMisses); skipped frames do not count. Times frameDurationMs, it is also how long no frame may be acknowledged before the stall guard reports every tracked marker lost (see _sweepMarkers)
+ * @param {number} [options.lostThreshold=5] - Consecutive processed frames a tracked marker must be absent from before it is marked lost (see _applyMisses); skipped frames do not count. Times frameDurationMs, it is also how long the plugin may go without an analysed frame before the stall guard reports every tracked marker lost (see _sweepMarkers): frames acknowledged as skipped do not reset that timer, so markers can be reported lost while skipped frames keep arriving
  * @param {number} [options.frameDurationMs=200] - Expected milliseconds per processed frame. Only used for the stall guard: when no frame has been processed for `lostThreshold * frameDurationMs`, every tracked marker is reported lost (see _sweepMarkers)
  * @param {number} [options.sweepIntervalMs=100] - Interval for running the stall guard
  * @param {string} [options.cameraParametersUrl] - Camera calibration parameters URL
@@ -103,7 +103,7 @@ function usableDir(dir) {
  *
  * @fires ar:markerFound - When a marker is first detected
  * @fires ar:markerUpdated - When a tracked marker's pose updates
- * @fires ar:markerLost - When a tracked marker has been absent from lostThreshold consecutive processed frames, or frames stop arriving altogether
+ * @fires ar:markerLost - When a tracked marker has been absent from lostThreshold consecutive processed frames, or no frame has been analysed for lostThreshold × frameDurationMs (frames stopped, or all skipped)
  * @fires ar:workerReady - When the detection worker is initialized
  * @fires ar:workerError - When the worker encounters an error
  * @fires ar:camera - With the camera projection, once the first frame reaches the detector and again when nearPlane or farPlane change
