@@ -10,7 +10,8 @@ export default defineConfig({
       fileName: (format) => `arjs-plugin-artoolkit.${format}.js`,
       formats: ["es"], // ES module build ("esm" is not a valid LibraryFormats value)
     },
-    rollupOptions: {
+    // Rolldown (vite 8); rollupOptions is the deprecated name.
+    rolldownOptions: {
       output: {
         // Keep assets under assets/; relative path is enforced by base: './'
         assetFileNames: "assets/[name]-[hash][extname]",

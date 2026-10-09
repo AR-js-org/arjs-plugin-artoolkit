@@ -89,9 +89,10 @@ jobs:
         with:
           ref: refs/tags/${{ env.TAG }}
 
-      # 24.x, not the 22.x in .nvmrc that every other job uses. Trusted publishing
-      # needs npm 11.5.1 or newer and Node 22.x still ships 10.9.x, so reading
-      # .nvmrc here would authenticate with a token it does not have.
+      # 24.x stated here rather than read from .nvmrc. Trusted publishing needs
+      # npm 11.5.1 or newer, which Node 24 ships and Node 22 did not; .nvmrc is
+      # Node 24 too now, but pinning the major here keeps publishing from
+      # depending on whatever .nvmrc says later.
       #
       # `registry-url` is deliberately NOT set. It makes setup-node write an .npmrc
       # line reading `_authToken=${NODE_AUTH_TOKEN}`; with no token in the

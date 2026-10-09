@@ -27,6 +27,9 @@ sections cover each breaking release in more detail.
 - The README shows importing the binary's URL with a bundler
   (`@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm?url`, which needs 0.4.1)
   and recommends `@ar-js-org/artoolkit5-wasm` as a direct dependency (#59).
+- The package is built with vite 8 (Rolldown). Exports, file layout and the
+  worker's relative URL are unchanged; the bundle no longer carries the JSDoc
+  comments, so the entry drops from 23 to 9 kB (#62).
 
 ### Fixed
 
@@ -43,6 +46,15 @@ sections cover each breaking release in more detail.
   `ImageBitmap`, was posted to the worker and held the one-frame slot until
   acknowledged, so camera frames arriving meanwhile were dropped. It is now
   ignored (#54).
+
+### Development
+
+- Node 24 LTS (`.nvmrc` v24.21.0), whose npm 11 no longer rewrites the
+  lockfile against npm 10 or crashes on vitest's optional peers. `publish.yml`
+  keeps its explicit Node 24.x (#62).
+- eslint 10, vitest 5 with `@vitest/coverage-v8` 5, jsdom 29 and TypeScript 6
+  (with `rootDir` and `strict: false`, so `types/` is unchanged). `npm audit`
+  reports no vulnerabilities (#62).
 
 ## [0.3.0] - 2026-10-08
 

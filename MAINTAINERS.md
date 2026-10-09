@@ -68,8 +68,9 @@ the release assets.
   `.npmrc` with `_authToken=${NODE_AUTH_TOKEN}`; with no token npm believes
   auth is configured and never performs the OIDC exchange. npm's own example
   workflow includes it, so it is easy to reintroduce by copying the docs.
-- **`publish.yml` must use Node 24.x**, not `.nvmrc`. Trusted publishing needs
-  npm ≥ 11.5.1; the pinned Node 22 ships npm 10.9.
+- **`publish.yml` must use Node 24.x**, stated in the workflow rather than read
+  from `.nvmrc`. Trusted publishing needs npm ≥ 11.5.1, which Node 22's npm 10.9
+  is not. `.nvmrc` pins Node 24 as well, but publishing must not depend on it.
 - npm authorises per workflow **filename** and does not validate the trusted
   publisher configuration when it is saved. Renaming `publish.yml` breaks
   publishing silently until the next release.
