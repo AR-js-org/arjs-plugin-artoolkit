@@ -20,6 +20,14 @@ sections cover each breaking release in more detail.
   starts later. Without it, a 3D renderer had no way to overlay
   content on the marker (#57).
 
+### Changed
+
+- The worker bundles the `@ar-js-org/artoolkit5-wasm` 0.4.1 glue, the same build
+  as the binary applications load through `wasmUrl` (#59).
+- The README shows importing the binary's URL with a bundler
+  (`@ar-js-org/artoolkit5-wasm/dist/artoolkit5.wasm?url`, which needs 0.4.1)
+  and recommends `@ar-js-org/artoolkit5-wasm` as a direct dependency (#59).
+
 ### Fixed
 
 - Vite dev servers no longer warn `Failed to load source map` for
