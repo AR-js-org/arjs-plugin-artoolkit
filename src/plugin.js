@@ -167,6 +167,10 @@ export class ArtoolkitPlugin {
     // Track worker readiness (used by examples to avoid UI race)
     this.workerReady = false;
 
+    // The camera projection from the worker's `camera` message; null until
+    // the first frame has created the detector state.
+    this._projectionMatrix = null;
+
     this.version = ARTOOLKIT_PLUGIN_VERSION;
   }
 
@@ -643,6 +647,20 @@ export class ArtoolkitPlugin {
       console.log("[Plugin] Worker ready");
       this.workerReady = true;
       this.core?.eventBus?.emit("ar:workerReady", {});
+    } else if (type === "camera") {
+      // Not a frame acknowledgement: the frame that produced it still sends
+      // its own detectionResult.
+      const projectionMatrix = Float32Array.from(
+        payload?.projectionMatrix ?? [],
+      );
+      if (projectionMatrix.length !== 16) return;
+      this._projectionMatrix = projectionMatrix;
+      this.core?.eventBus?.emit("ar:camera", {
+        projectionMatrix: projectionMatrix.slice(),
+        width: payload.width,
+        height: payload.height,
+        timestamp: Date.now(),
+      });
     } else if (type === "detectionResult") {
       this._frameInFlight = false;
       // A frame acknowledged without being analysed (no ImageBitmap, or no
@@ -732,6 +750,18 @@ export class ArtoolkitPlugin {
    * const state = plugin.getMarkerState(42, 'pattern');
    * if (state && state.visible) console.log('last seen', state.lastSeen);
    */
+  /**
+   * The camera projection matrix ARToolKit computed from the camera
+   * parameters, as last published on `ar:camera`. It pairs with the marker
+   * events' `matrix`: a renderer that missed the event reads it here.
+   *
+   * @returns {Float32Array|null} A fresh copy of the sixteen values, column-major,
+   *   or null before the first frame has reached the detector
+   */
+  getProjectionMatrix() {
+    return this._projectionMatrix ? this._projectionMatrix.slice() : null;
+  }
+
   getMarkerState(markerId, type = "pattern") {
     return this._markers.get(this._markerKey(markerId, type)) || null;
   }

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   loadPatternMarker: vi.fn(),
   trackMarker: vi.fn(),
   processFrame: vi.fn(),
+  getCameraProjectionMatrix: vi.fn(),
 }));
 
 vi.mock("@ar-js-org/artoolkit5-ts", () => mocks);
@@ -60,6 +61,24 @@ describe("artoolkit-detector", () => {
       "/camera_para.dat",
       undefined,
     );
+  });
+
+  it("getProjectionMatrix returns null before ensureReady and the artoolkit5-ts matrix after", async () => {
+    const lens = Float64Array.from({ length: 16 }, (_, i) => i);
+    mocks.getCameraProjectionMatrix.mockReturnValue(lens);
+    const detector = createDetector({ cameraParametersUrl: "/cam.dat" });
+
+    expect(detector.getProjectionMatrix()).toBeNull();
+
+    await detector.ensureReady(640, 480);
+
+    expect(Array.from(detector.getProjectionMatrix()!)).toEqual(
+      Array.from(lens),
+    );
+    expect(mocks.getCameraProjectionMatrix).toHaveBeenCalledTimes(1);
+    expect(mocks.getCameraProjectionMatrix).toHaveBeenCalledWith({
+      id: "state",
+    });
   });
 
   it("creates state only once across repeated ensureReady calls", async () => {

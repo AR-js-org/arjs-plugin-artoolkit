@@ -359,9 +359,17 @@ The plugin emits the following events on your engine’s event bus:
 | `ar:markerLost`    | `{ markerId, type, timestamp }`                                  |
 | `ar:workerReady`   | `{}`                                                             |
 | `ar:workerError`   | `{ message }`                                                    |
+| `ar:camera`        | `{ projectionMatrix, width, height, timestamp }`                 |
 
 `matrix` is a `Float32Array(16)`, 4x4 column-major right-handed — ready for
-WebGL and for `THREE.Matrix4.fromArray()` with no conversion. `type` is
+WebGL and for `THREE.Matrix4.fromArray()` with no conversion.
+
+`ar:camera` gives the camera projection to render those poses with, also a
+`Float32Array(16)`, computed by ARToolKit from your `camera_para.dat`. It fires
+once, when the first frame reaches the detector. Set it as your 3D camera's
+projection matrix; `arjs-plugin-threejs` does this on `ar:camera`. If your
+renderer starts after that, call `artoolkit.getProjectionMatrix()`, which
+returns the same values or `null` before the first frame. `type` is
 `"pattern"` or `"barcode"`. A marker's real identity is the pair
 `type:markerId`, not `markerId` alone — pattern and barcode markers keep
 independent ID registries, so a barcode marker and a pattern marker can both

@@ -61,6 +61,7 @@ message-passing concerns belong in the worker.
 | worker → main | `loadMarkerResult`   | `{ ok, markerId, size, requestId, error }`                         |
 | worker → main | `trackBarcodeResult` | `{ ok, markerId, size, detectionMode, requestId, error }`          |
 | worker → main | `configureResult`    | `{ ok, config, requestId, error }`                                 |
+| worker → main | `camera`             | `{ projectionMatrix, width, height }`                              |
 | worker → main | `detectionResult`    | `{ frameId, detected, lost, skipped? }`                            |
 | worker → main | `initError`          | `{ message }`                                                      |
 | worker → main | `error`              | `{ message }`                                                      |
@@ -134,6 +135,15 @@ pose that is already stale by the time it is computed.
 | `ar:markerLost`    | `{ markerId, type, timestamp }`                                  |
 | `ar:workerReady`   | `{}`                                                             |
 | `ar:workerError`   | `{ message }`                                                    |
+| `ar:camera`        | `{ projectionMatrix, width, height, timestamp }`                 |
+
+`ar:camera` carries the camera projection matrix, a `Float32Array(16)`
+column-major, that artoolkit5-ts's `getCameraProjectionMatrix` computes from
+`camera_para.dat`. It is the projection that pairs with `matrix`. The worker
+sends `camera` once per detector, before the `detectionResult` of the first
+frame that creates the ARToolKit state: the projection does not exist before
+then and never changes after. It is not a frame acknowledgement. A renderer
+enabled later reads the same values from `plugin.getProjectionMatrix()`.
 
 `vertex` is the detected square's four corners, `[[x, y], …]`, in the pixel
 coordinates of the frame that was submitted — not of however the video is

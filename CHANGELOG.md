@@ -10,6 +10,15 @@ sections cover each breaking release in more detail.
 
 ## [Unreleased]
 
+### Added
+
+- `ar:camera` `{ projectionMatrix, width, height, timestamp }`: the camera
+  projection matrix ARToolKit computes from `camera_para.dat`, which pairs with
+  the marker events' `matrix`. It is emitted once, when the first frame creates
+  the detector state. `plugin.getProjectionMatrix()` returns the same values to
+  a renderer that starts later. Without it, a 3D renderer had no way to overlay
+  content on the marker.
+
 ## [0.3.0] - 2026-10-08
 
 No breaking API changes.

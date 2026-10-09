@@ -12,6 +12,7 @@ import {
   configureDetector,
   createARToolKitState,
   disposeARToolKitState,
+  getCameraProjectionMatrix,
   loadPatternMarker,
   processFrame,
   trackBarcodeMarker,
@@ -179,6 +180,12 @@ export function createDetector(options = {}) {
 
   /** @type {Object|null} */
   let state = null;
+  /**
+   * The camera projection for `state`, taken once when it is created: it
+   * depends only on the camera parameters and the frame size, both fixed.
+   * @type {Float64Array|null}
+   */
+  let projectionMatrix = null;
   /** @type {Promise<boolean>|null} */
   let initInProgress = null;
   let failCount = 0;
@@ -268,6 +275,7 @@ export function createDetector(options = {}) {
         }
 
         state = created;
+        projectionMatrix = getCameraProjectionMatrix(created);
         failCount = 0;
         failedUntil = 0;
 
@@ -573,7 +581,18 @@ export function createDetector(options = {}) {
     if (state) {
       disposeARToolKitState(state);
       state = null;
+      projectionMatrix = null;
     }
+  }
+
+  /**
+   * The camera projection matrix artoolkit5-ts computed from the camera
+   * parameters, to pair with the detections' `matrixGL`.
+   *
+   * @returns {Float64Array|null} Sixteen values, or null before the state exists
+   */
+  function getProjectionMatrix() {
+    return projectionMatrix;
   }
 
   /**
@@ -584,6 +603,7 @@ export function createDetector(options = {}) {
    * @property {(barcodeId: number, size?: number) => Promise<{markerId: number, size: number, detectionMode: string}>} trackBarcode
    * @property {(pixels: Uint8ClampedArray) => {detected: Array<Object>, lost: Array<Object>}} detect
    * @property {() => void} dispose
+   * @property {() => (Float64Array|null)} getProjectionMatrix
    */
   return {
     ensureReady,
@@ -592,5 +612,6 @@ export function createDetector(options = {}) {
     trackBarcode,
     detect,
     dispose,
+    getProjectionMatrix,
   };
 }

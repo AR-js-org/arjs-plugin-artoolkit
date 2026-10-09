@@ -35,6 +35,11 @@ let offscreenCtx = null;
 let canvasW = 0;
 let canvasH = 0;
 let hasAnnouncedReady = false;
+/**
+ * Whether this detector's camera projection has been sent. It exists only once
+ * the first frame has created the ARToolKit state, and it never changes after.
+ */
+let cameraSent = false;
 
 /**
  * Post a message to the main thread.
@@ -72,6 +77,7 @@ self.addEventListener("message", async (ev) => {
       // Constructing a second detector here would discard the ARToolKit state
       // and every pattern loaded so far, so init is idempotent.
       if (!detector) {
+        cameraSent = false;
         detector = createDetector({
           cameraParametersUrl: payload?.cameraParametersUrl ?? undefined,
           wasmUrl: payload?.wasmUrl ?? undefined,
@@ -197,7 +203,21 @@ self.addEventListener("message", async (ev) => {
       // ensureReady and ensureCanvas can both throw; the bitmap is a
       // full-resolution buffer and must be released either way.
       try {
-        await detector.ensureReady(w, h);
+        const ready = await detector.ensureReady(w, h);
+        // Once, before this frame's detectionResult, so a renderer has the
+        // projection before the first pose it applies.
+        const projectionMatrix = ready && detector.getProjectionMatrix();
+        if (projectionMatrix && !cameraSent) {
+          cameraSent = true;
+          sendMessage({
+            type: "camera",
+            payload: {
+              projectionMatrix: Array.from(projectionMatrix),
+              width: w,
+              height: h,
+            },
+          });
+        }
         ensureCanvas(w, h);
 
         offscreenCtx.clearRect(0, 0, w, h);
@@ -222,6 +242,7 @@ self.addEventListener("message", async (ev) => {
     if (type === "dispose") {
       detector?.dispose();
       detector = null;
+      cameraSent = false;
       return;
     }
   } catch (err) {
