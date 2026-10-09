@@ -12,7 +12,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, posix } from "node:path";
 
 /** Paths npm publishes whatever `files` says, so their absence is not a defect. */
@@ -33,12 +33,14 @@ const PUBLISHABLE_ROOTS = ["dist", "types"];
  * @param {string[]} input.manifest - Paths npm reported, posix-style, no leading './'.
  * @param {string[]} input.entryPoints - Declared entry points (main, module, types, exports).
  * @param {string[]} input.runtimeFiles - Files the build emitted that the entry points need at run time.
- * @returns {{missingEntryPoints: string[], missingRuntimeFiles: string[], sourcemaps: string[], unexpected: string[]}}
+ * @param {Record<string, string>} input.sourceMapReferences - Each shipped file's `sourceMappingURL`, by path.
+ * @returns {{missingEntryPoints: string[], missingRuntimeFiles: string[], sourcemaps: string[], danglingSourceMapReferences: string[], unexpected: string[]}}
  */
 export function auditManifest({
   manifest,
   entryPoints,
   runtimeFiles = [],
+  sourceMapReferences = {},
   allowedRoots = ["dist", "types"],
 }) {
   const shipped = new Set(manifest.map(normalise));
@@ -60,6 +62,16 @@ export function auditManifest({
   // to exclude them stop applying once `files` is set.
   const sourcemaps = [...shipped].filter((path) => path.endsWith(".map"));
 
+  // Pins #55, the other half of #12: a shipped file must not point at a map the
+  // tarball leaves out. Vite's dev server follows the reference and warns
+  // "Failed to load source map" for each one. Inline `data:` maps carry their own.
+  const danglingSourceMapReferences = Object.entries(sourceMapReferences)
+    .map(([file, url]) => [normalise(file), url])
+    .filter(([file, url]) => shipped.has(file) && !url.startsWith("data:"))
+    .map(([file, url]) => [file, posix.join(posix.dirname(file), url)])
+    .filter(([, map]) => !shipped.has(map))
+    .map(([file, map]) => `${file} -> ${map}`);
+
   // Catches the #33 failure directly: a top-level entry that is neither an
   // allowlisted directory nor one of npm's unconditional inclusions.
   const unexpected = [...shipped].filter((path) => {
@@ -67,7 +79,13 @@ export function auditManifest({
     return !allowedRoots.includes(path.split("/")[0]);
   });
 
-  return { missingEntryPoints, missingRuntimeFiles, sourcemaps, unexpected };
+  return {
+    missingEntryPoints,
+    missingRuntimeFiles,
+    sourcemaps,
+    danglingSourceMapReferences,
+    unexpected,
+  };
 }
 
 /**
@@ -115,6 +133,18 @@ function collectRuntimeFiles(root = "dist") {
   return found;
 }
 
+/** The `sourceMappingURL` of each shipped `.js` file that declares one, by path. */
+function readSourceMapReferences(manifest) {
+  const references = {};
+  for (const path of manifest.filter((p) => p.endsWith(".js"))) {
+    const match = readFileSync(path, "utf8").match(
+      /\/\/[#@]\s*sourceMappingURL=(\S+)\s*$/,
+    );
+    if (match) references[path] = match[1];
+  }
+  return references;
+}
+
 function main() {
   const pkg = JSON.parse(
     execFileSync(
@@ -159,6 +189,7 @@ function main() {
     manifest,
     entryPoints,
     runtimeFiles: collectRuntimeFiles(),
+    sourceMapReferences: readSourceMapReferences(manifest),
     // Deliberately NOT derived from `pkg.files`. Deriving it would make this
     // check self-referential: adding `docs` to the allowlist would also add it to
     // what the check considers acceptable, so the #33 failure would pass. The two
@@ -174,6 +205,10 @@ function main() {
     ],
     ["Runtime files missing from the tarball", result.missingRuntimeFiles],
     ["Sourcemaps in the tarball (see #12)", result.sourcemaps],
+    [
+      "Files referencing sourcemaps the tarball lacks (see #55)",
+      result.danglingSourceMapReferences,
+    ],
     ["Unexpected files in the tarball (see #33)", result.unexpected],
   ].filter(([, paths]) => paths.length > 0);
 

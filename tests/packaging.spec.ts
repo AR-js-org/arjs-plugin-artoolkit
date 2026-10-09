@@ -72,6 +72,34 @@ describe("auditManifest", () => {
     expect(result.sourcemaps).toEqual(["dist/index.js.map"]);
   });
 
+  it("reports a published file whose sourceMappingURL names a map the tarball lacks", () => {
+    // Pins #55. #12 keeps the maps out, but `sourcemap: true` still appended
+    // `//# sourceMappingURL=<file>.map` to the files that do ship, so every Vite
+    // dev server warned "Failed to load source map" for both of them.
+    const result = auditManifest({
+      manifest: [
+        "dist/index.js",
+        "dist/assets/worker.js",
+        "dist/assets/inlined.js",
+        "dist/assets/shipped.js",
+        "dist/assets/shipped.js.map",
+        "types/index.d.ts",
+      ],
+      entryPoints,
+      sourceMapReferences: {
+        "dist/index.js": "index.js.map",
+        "dist/assets/worker.js": "worker.js.map",
+        "dist/assets/inlined.js": "data:application/json;base64,e30=",
+        "dist/assets/shipped.js": "shipped.js.map",
+      },
+    });
+
+    expect(result.danglingSourceMapReferences).toEqual([
+      "dist/index.js -> dist/index.js.map",
+      "dist/assets/worker.js -> dist/assets/worker.js.map",
+    ]);
+  });
+
   it("reports files outside the allowlisted roots, but not npm's own inclusions", () => {
     const result = auditManifest({
       manifest: [
@@ -114,6 +142,7 @@ describe("auditManifest", () => {
       missingEntryPoints: [],
       missingRuntimeFiles: [],
       sourcemaps: [],
+      danglingSourceMapReferences: [],
       unexpected: [],
     });
   });

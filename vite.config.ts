@@ -17,7 +17,11 @@ export default defineConfig({
         // Let Vite/rollup choose relative paths tied to the lib entry; no need to force chunks dirs
       },
     },
-    sourcemap: true,
+    // "hidden": the maps are still written to dist/ (local debugging, the
+    // release's dist.zip) but the files carry no sourceMappingURL. The npm
+    // package leaves the maps out (#12), and a reference to a missing map makes
+    // every Vite dev server warn "Failed to load source map" (#55).
+    sourcemap: "hidden",
     target: "esnext",
   },
   worker: {
