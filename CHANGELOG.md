@@ -17,7 +17,7 @@ sections cover each breaking release in more detail.
   the marker events' `matrix`. It is emitted once, when the first frame creates
   the detector state. `plugin.getProjectionMatrix()` returns the same values to
   a renderer that starts later. Without it, a 3D renderer had no way to overlay
-  content on the marker.
+  content on the marker (#57).
 
 ## [0.3.0] - 2026-10-08
 
