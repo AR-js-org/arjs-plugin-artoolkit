@@ -35,6 +35,12 @@
     // next to the .js files
     //"outDir": "types",
     "declarationDir": "types",
+    // TypeScript 6 requires rootDir when declarationDir is set. src is the
+    // common source directory TypeScript 5 inferred, so types/ keeps its layout.
+    "rootDir": "src",
+    // TypeScript 6 turns strict on by default, which types JSDoc {Object} as
+    // Object instead of any and narrows the published declarations.
+    "strict": false,
     // go to js file when using IDE functions like
     // "Go to Definition" in VSCode
     "declarationMap": true
