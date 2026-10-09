@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 // @ts-ignore  plain .mjs, no declarations, and not worth generating them for a dev script
-import { auditManifest } from "../dev/check-package-contents.mjs";
+import {
+  auditManifest,
+  sourceMappingUrl,
+} from "../dev/check-package-contents.mjs";
 import pkg from "../package.json";
 
 /**
@@ -158,6 +161,39 @@ describe("auditManifest", () => {
     });
 
     expect(result.missingEntryPoints).toEqual([]);
+  });
+});
+
+describe("sourceMappingUrl", () => {
+  // Built from pieces: a literal directive in this file would be read by
+  // Vite's own transform, which then tries to load the map.
+  const KEY = "source" + "MappingURL=";
+  const line = (url: string, prefix = "//#") => `${prefix} ${KEY}${url}`;
+  const file = (...lines: string[]) => lines.join("\n");
+
+  it("finds a directive followed by a footer comment", () => {
+    // Qodo on #56: the directive need not end the file.
+    const source = file("code();", line("index.js.map"), "/* footer */", "");
+    expect(sourceMappingUrl(source)).toBe("index.js.map");
+  });
+
+  it("returns the last directive, the one that applies", () => {
+    const source = file(line("old.js.map"), "code();", line("new.js.map"), "");
+    expect(sourceMappingUrl(source)).toBe("new.js.map");
+  });
+
+  it("reads the legacy //@ form and the /*# */ block form", () => {
+    expect(sourceMappingUrl(file("x;", line("a.map", "//@")))).toBe("a.map");
+    expect(sourceMappingUrl(file("x;", `${line("b.map", "/*#")} */`, ""))).toBe(
+      "b.map",
+    );
+  });
+
+  it("returns null without a directive, or with one inside a line of code", () => {
+    expect(sourceMappingUrl(file("code();", ""))).toBeNull();
+    expect(
+      sourceMappingUrl(file(`const s = "${line("fake.map")}";`, "")),
+    ).toBeNull();
   });
 });
 

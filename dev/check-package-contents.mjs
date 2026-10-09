@@ -134,13 +134,28 @@ function collectRuntimeFiles(root = "dist") {
 }
 
 /** The `sourceMappingURL` of each shipped `.js` file that declares one, by path. */
+/**
+ * The `sourceMappingURL` a JavaScript file declares: the last such directive
+ * standing on a line of its own, as `//# …`, `//@ …` or `/*# … *\/`. A
+ * directive need not end the file, since a footer comment may follow it;
+ * one inside a line of code (in a string, say) is not a directive.
+ *
+ * @param {string} source - The file's contents
+ * @returns {string|null} The URL, or null when the file declares none
+ */
+export function sourceMappingUrl(source) {
+  const directive =
+    /^[ \t]*(?:\/\/[#@][ \t]*sourceMappingURL=(\S+)|\/\*[#@][ \t]*sourceMappingURL=(\S+?)[ \t]*\*\/)[ \t]*\r?$/gm;
+  let url = null;
+  for (const match of source.matchAll(directive)) url = match[1] ?? match[2];
+  return url;
+}
+
 function readSourceMapReferences(manifest) {
   const references = {};
   for (const path of manifest.filter((p) => p.endsWith(".js"))) {
-    const match = readFileSync(path, "utf8").match(
-      /\/\/[#@]\s*sourceMappingURL=(\S+)\s*$/,
-    );
-    if (match) references[path] = match[1];
+    const url = sourceMappingUrl(readFileSync(path, "utf8"));
+    if (url) references[path] = url;
   }
   return references;
 }
