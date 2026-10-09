@@ -47,6 +47,15 @@ sections cover each breaking release in more detail.
   acknowledged, so camera frames arriving meanwhile were dropped. It is now
   ignored (#54).
 
+### Development
+
+- Node 24 LTS (`.nvmrc` v24.21.0), whose npm 11 no longer rewrites the
+  lockfile against npm 10 or crashes on vitest's optional peers. `publish.yml`
+  keeps its explicit Node 24.x (#62).
+- eslint 10, vitest 5 with `@vitest/coverage-v8` 5, jsdom 29 and TypeScript 6
+  (with `rootDir` and `strict: false`, so `types/` is unchanged). `npm audit`
+  reports no vulnerabilities (#62).
+
 ## [0.3.0] - 2026-10-08
 
 No breaking API changes.
