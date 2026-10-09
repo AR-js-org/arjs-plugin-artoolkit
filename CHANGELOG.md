@@ -35,6 +35,14 @@ sections cover each breaking release in more detail.
   in a `sourceMappingURL` comment pointing at maps the package does not ship
   (#12); they are now built with `sourcemap: "hidden"`. The maps are still in
   the release's `dist.zip` (#55).
+- While ARToolKit initialisation was failing and retrying, every frame was
+  reported as analysed with nothing found, so tracked markers were declared
+  lost after `lostThreshold` frames, and the stall guard never ran. Those
+  frames are now acknowledged as skipped (#52).
+- The engine's own `engine:update` tick, `{ deltaTime, context }` with no
+  `ImageBitmap`, was posted to the worker and held the one-frame slot until
+  acknowledged, so camera frames arriving meanwhile were dropped. It is now
+  ignored (#54).
 
 ## [0.3.0] - 2026-10-08
 

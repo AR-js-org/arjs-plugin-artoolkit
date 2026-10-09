@@ -237,6 +237,26 @@ describe("worker message protocol", () => {
     expect(posted.some((m) => m.type === "camera")).toBe(false);
   });
 
+  it("a frame the detector is not ready for is acknowledged as skipped, not analysed (#52)", async () => {
+    // Initialisation failing and backing off: ensureReady resolves false.
+    detector.ensureReady.mockResolvedValue(false);
+    const close = vi.fn();
+
+    expect(
+      await send("processFrame", {
+        frameId: 6,
+        imageBitmap: { close, width: 640, height: 480 },
+        width: 640,
+        height: 480,
+      }),
+    ).toEqual({
+      type: "detectionResult",
+      payload: { frameId: 6, detected: [], lost: [], skipped: true },
+    });
+    expect(detector.detect).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("a skipped frame sends no camera", async () => {
     await send("dispose");
     await send("init", {});
