@@ -285,15 +285,31 @@ Commits predating this convention do not follow it; it applies going forward.
 ## Git
 
 - Branch flow: feature branch → `dev` → `main`. Never commit directly to `main`;
-  the hook in `.claude/settings.json` refuses `git commit`/`git push` there.
+  the `arjs` plugin's guard refuses `git commit` and pushes to `main` (see
+  "Claude Code setup" below).
 - Releases (milestones, tagging order, trusted publishing) follow
   `MAINTAINERS.md`.
-- `.claude/settings.json` also runs prettier and eslint `--fix` on every file
-  an agent edits (`.claude/hooks/format-on-edit.mjs`).
+- The `arjs` plugin's formatter runs the repository's prettier and eslint
+  `--fix` on every file an agent edits.
 - **Never pass `--author` or `-c user.name=…` to `git commit`.** Let the
   repository's own git config decide authorship. Overriding it has previously
   misattributed commits to the wrong GitHub account, and undoing that costs a
   `filter-branch` plus a force-push.
+
+### Claude Code setup
+
+The guard and the formatter come from the `arjs` plugin in
+[arjs-dev-tools](https://github.com/AR-js-org/arjs-dev-tools), enabled in
+`.claude/settings.json`. Once per clone, after trusting the folder in Claude
+Code, install it for the project:
+
+```bash
+claude plugin install arjs@arjs-dev-tools --scope project
+```
+
+A new session's `/hooks` then lists both as `arjs@arjs-dev-tools`. Without
+the install neither runs: `enabledPlugins` alone registers the marketplace
+but does not load the plugin.
 
 ## Pull requests
 
